@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "akizacore"
+version = "0.1.0"
+description = "AI Discord Assistant multifungsi"
+requires-python = ">=3.12"
+dependencies = [
+    "discord.py>=2.4",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+# Fase 2: database
+db = [
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "pgvector>=0.3",
+]
+# Fase 3: AI provider
+ai = [
+    "httpx>=0.27",
+]
+# Fase 6: backend API dashboard
+api = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "itsdangerous>=2.2",
+]
+dev = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pip-audit>=2.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akizacore"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+warn_unused_ignores = true
+check_untyped_defs = true
+
+# "strict" untuk services/ dan ai/ (sesuai coding standard)
+[[tool.mypy.overrides]]
+module = ["akizacore.services.*", "akizacore.ai.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_any_generics = true
+warn_return_any = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
