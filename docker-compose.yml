@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16   # PostgreSQL 16 + ekstensi pgvector (untuk memory semantik)
+    container_name: akizacore-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: akiza
+      POSTGRES_PASSWORD: akiza
+      POSTGRES_DB: akizacore
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akiza -d akizacore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # redis:            # aktifkan di Fase 3-4
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   ports: ["6379:6379"]
+
+volumes:
+  pgdata:
