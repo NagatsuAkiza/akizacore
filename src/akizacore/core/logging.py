@@ -6,7 +6,9 @@ import structlog
 def setup_logging(level: str = "INFO", json_output: bool = True) -> None:
     """Logging terstruktur. Bind guild_id/user_id/command lewat structlog.contextvars."""
     logging.basicConfig(format="%(message)s", level=level.upper())
-    renderer = structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
+    renderer = (
+        structlog.processors.JSONRenderer() if json_output else structlog.dev.ConsoleRenderer()
+    )
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

@@ -26,7 +26,9 @@ class General(commands.Cog):
         embed.add_field(name="ID", value=str(target.id))
         embed.add_field(name="Akun dibuat", value=discord.utils.format_dt(target.created_at, "R"))
         if target.joined_at:
-            embed.add_field(name="Gabung server", value=discord.utils.format_dt(target.joined_at, "R"))
+            embed.add_field(
+                name="Gabung server", value=discord.utils.format_dt(target.joined_at, "R")
+            )
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="serverinfo", description="Statistik server ini")

@@ -13,14 +13,16 @@ log = structlog.get_logger()
 class AkizaBot(commands.Bot):
     def __init__(self, settings: Settings) -> None:
         intents = discord.Intents.default()
-        intents.message_content = True  # privileged: aktifkan di Developer Portal (untuk chat via mention)
+        intents.message_content = (
+            True  # privileged: aktifkan di Developer Portal (untuk chat via mention)
+        )
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
             allowed_mentions=discord.AllowedMentions.none(),
         )
         self.settings = settings
-        self.tree.on_error = self.on_tree_error
+        self.tree.on_error = self.on_tree_error  # type: ignore[method-assign]
 
     async def setup_hook(self) -> None:
         await load_cogs(self)
