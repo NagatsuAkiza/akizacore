@@ -56,6 +56,13 @@ Bot juga dapat merespons ketika di-mention langsung di channel.
 - `/modlog` — melihat aksi moderasi terbaru.
 - `/automod` — melihat atau mengubah konfigurasi anti-spam dan anti-link.
 
+### Fun
+
+- `/joke` — mendapatkan lelucon singkat.
+- `/meme` — membuat meme teks sederhana.
+- `/react` — mengirim reaction emoji.
+- `/poll` — membuat poll interaktif dengan tombol voting.
+
 ### Server Settings
 
 - `/setup view` — melihat konfigurasi server.

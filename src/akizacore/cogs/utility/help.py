@@ -35,9 +35,13 @@ FEATURE_LABELS = {
     "userinfo": "Utility",
     "serverinfo": "Utility",
     "help": "Utility",
+    "joke": "Fun",
+    "meme": "Fun",
+    "react": "Fun",
+    "poll": "Fun",
 }
 
-FEATURE_ORDER = ["AI Assistant", "Economy", "Moderation", "Server Settings", "Utility"]
+FEATURE_ORDER = ["AI Assistant", "Economy", "Fun", "Moderation", "Server Settings", "Utility"]
 
 
 class HelpCog(commands.Cog):
