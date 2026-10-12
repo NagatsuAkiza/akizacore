@@ -1,5 +1,6 @@
 from akizacore.models.ai import AIUsage, Conversation, Message
 from akizacore.models.economy import EconomyAccount, Transaction
+from akizacore.models.memory import Memory
 from akizacore.models.moderation import AutomodConfig, ModerationLog, ModWarning
 from akizacore.models.server import Server, ServerSettings
 from akizacore.models.shop import InventoryItem, ShopItem
@@ -12,6 +13,7 @@ __all__ = [
     "EconomyAccount",
     "InventoryItem",
     "Message",
+    "Memory",
     "ModerationLog",
     "ModWarning",
     "Server",

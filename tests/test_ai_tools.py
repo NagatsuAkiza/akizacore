@@ -225,3 +225,19 @@ async def test_purge_removes_expired_messages_then_idle_conversations(
     assert await services.ai.purge_expired() == (0, 1)
     async with session_factory() as session:
         assert await session.scalar(select(func.count()).select_from(Conversation)) == 0
+
+
+async def test_forget_and_retention_purge_do_not_delete_explicit_memories(
+    session_factory: Factory,
+) -> None:
+    services = await make(session_factory, FakeLLM())
+    assert services.ai is not None
+    await services.memory.save(GUILD.id, USER.id, "Tetap disimpan.")
+
+    await services.ai.forget(GUILD.id, USER.id)
+    memories = await services.memory.list(GUILD.id, USER.id)
+    assert [memory.content for memory in memories] == ["Tetap disimpan."]
+
+    assert await services.ai.purge_expired() == (0, 0)
+    memories = await services.memory.list(GUILD.id, USER.id)
+    assert [memory.content for memory in memories] == ["Tetap disimpan."]

@@ -13,6 +13,8 @@ class AIConfig:
     daily_user_limit: int = 15
     history_messages: int = 6
     history_max_chars: int = 6000
+    memory_limit: int = 5
+    memory_max_chars: int = 2000
     max_input_chars: int = 1500
     max_output_tokens: int = 1024
     utc_offset_hours: int = 7

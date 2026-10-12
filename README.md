@@ -32,9 +32,19 @@ merupakan fitur yang tersedia saat ini.
 - `/ask` — bertanya atau meminta bantuan kepada AI.
 - `/translate` — menerjemahkan teks ke bahasa tujuan.
 - `/forget` — menghapus riwayat percakapan AI milik sendiri di server.
+- `/memory save` — menyimpan memory AI secara eksplisit untuk server ini.
+- `/memory list` — melihat memory AI yang tersimpan di server ini.
+- `/memory delete` dan `/memory clear` — menghapus satu atau seluruh memory AI
+  milik sendiri di server ini.
 - `/persona view|set|reset` — melihat atau mengatur gaya bicara AI server (admin).
 
 Bot juga dapat merespons ketika di-mention langsung di channel.
+
+Memory AI bersifat eksplisit: bot hanya menyimpan teks yang kamu masukkan melalui
+`/memory save`. Memory terisolasi per server dan per user, sehingga tidak dibagikan
+ke server lain atau member lain. `/forget` hanya menghapus riwayat percakapan; gunakan
+`/memory delete` atau `/memory clear` untuk menghapus memory tersimpan. Jika fitur AI
+dinonaktifkan untuk akunmu, `/memory save` dan penggunaan memory AI tidak tersedia.
 
 ### Economy
 

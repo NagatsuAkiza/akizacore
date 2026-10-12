@@ -28,6 +28,7 @@ from akizacore.database.repositories import (
 from akizacore.database.session import session_scope
 from akizacore.schemas.discord import UserInfo
 from akizacore.services.economy import EconomyService
+from akizacore.services.memory import MemoryService
 from akizacore.services.settings import SettingsService
 
 log = structlog.get_logger()
@@ -71,6 +72,7 @@ class _Admission:
     language: str
     persona: str | None
     features: dict[str, bool]
+    opted_out: bool
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,7 @@ class AIOrchestrator:
         llm: LLMProvider,
         economy: EconomyService,
         settings: SettingsService,
+        memory: MemoryService,
         config: AIConfig,
         tools: ToolRegistry | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -109,6 +112,7 @@ class AIOrchestrator:
         self._llm = llm
         self._economy = economy
         self._settings = settings
+        self._memory = memory
         self._cfg = config
         self._tools = tools
         self._executor = ToolExecutor(tools) if tools is not None else None
@@ -214,7 +218,7 @@ class AIOrchestrator:
         language, opted_out = await self._load_profile(user_id)
         if opted_out and not is_owner:
             raise PermissionDenied("Kamu menonaktifkan fitur AI untuk akunmu.")
-        return _Admission(language, server_settings.ai_persona, server_settings.features)
+        return _Admission(language, server_settings.ai_persona, server_settings.features, opted_out)
 
     async def _try_rule(self, prompt: str, ctx: ToolContext) -> AskResult | None:
         if self._tools is None or self._executor is None:
@@ -279,6 +283,12 @@ class AIOrchestrator:
             )
             for row in rows
         ]
+        memories = (
+            await self._memory.context_for_ai(req.server_id, req.user.id)
+            if not admission.opted_out
+            else []
+        )
+        memories = memories[: max(0, cfg.memory_limit)]
 
         specs = self._tools.specs_for(ctx) if self._tools is not None else []
         messages = build_messages(
@@ -289,6 +299,8 @@ class AIOrchestrator:
             history=history,
             prompt=prompt,
             history_max_chars=cfg.history_max_chars,
+            memories=[memory.content for memory in memories],
+            memory_max_chars=cfg.memory_max_chars,
             tools_enabled=bool(specs),
             is_bot_owner=self._is_owner(req.user.id),
             reply_context=req.reply_context,

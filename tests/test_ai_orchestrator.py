@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from akizacore.ai.config import AIConfig
@@ -11,7 +12,7 @@ from akizacore.core.exceptions import (
     QuotaExceeded,
     ValidationFailed,
 )
-from akizacore.models import UserProfile
+from akizacore.models import AIUsage, Message, UserProfile
 from akizacore.schemas.discord import GuildInfo, UserInfo
 from akizacore.services.container import Services
 from tests.fakes import FakeLLM
@@ -102,6 +103,17 @@ async def test_reply_context_is_forwarded_and_history_has_author_labels(
     assert history[1].content.startswith("[AkizaCore]: ")
 
 
+async def test_scoped_memories_are_forwarded_to_ai_context(session_factory: Factory) -> None:
+    llm = FakeLLM("jawaban")
+    services = await make(session_factory, llm)
+    assert services.ai is not None
+    await services.memory.save(GUILD.id, USER.id, "Saya suka jawaban singkat.")
+
+    await services.ai.ask(req())
+
+    assert "Saya suka jawaban singkat." in llm.calls[-1][0].content
+
+
 async def test_ai_must_be_enabled_for_server(session_factory: Factory) -> None:
     services = await make(session_factory, enable_ai=False)
     assert services.ai is not None
@@ -126,6 +138,33 @@ async def test_provider_failure_refunds_coins(session_factory: Factory) -> None:
     with pytest.raises(ProviderUnavailable):
         await services.ai.ask(req())
     assert await services.economy.balance(GUILD.id, USER.id) == 100
+
+
+async def test_memory_retrieval_failure_refunds_and_does_not_persist(
+    session_factory: Factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    services = await make(session_factory)
+    assert services.ai is not None
+
+    async def fail_context_for_ai(server_id: int, user_id: int) -> list[object]:
+        raise RuntimeError("memory unavailable")
+
+    monkeypatch.setattr(services.memory, "context_for_ai", fail_context_for_ai)
+
+    with pytest.raises(RuntimeError, match="memory unavailable"):
+        await services.ai.ask(req())
+
+    assert await services.economy.balance(GUILD.id, USER.id) == 100
+    async with session_factory() as session:
+        assert await session.scalar(select(func.count(Message.id))) == 0
+        assert (
+            await session.scalar(
+                select(func.count(AIUsage.id)).where(
+                    AIUsage.server_id == GUILD.id, AIUsage.user_id == USER.id
+                )
+            )
+            == 0
+        )
 
 
 async def test_insufficient_funds_never_calls_llm(session_factory: Factory) -> None:

@@ -10,6 +10,7 @@ FEATURE_LABELS = {
     "ask": "AI Assistant",
     "translate": "AI Assistant",
     "forget": "AI Assistant",
+    "memory": "AI Assistant",
     "balance": "Economy",
     "daily": "Economy",
     "work": "Economy",

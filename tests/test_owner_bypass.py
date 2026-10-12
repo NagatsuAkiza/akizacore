@@ -172,6 +172,23 @@ async def test_owner_ignores_ai_opt_out(session_factory: Factory) -> None:
         await s.ai.ask(ask(OLD))
 
 
+async def test_owner_opt_out_does_not_forward_explicit_memory(
+    session_factory: Factory,
+) -> None:
+    llm = FakeLLM()
+    s = await make(session_factory, llm=llm)
+    assert s.ai is not None
+    await s.memory.save(GUILD.id, OWNER.id, "Rahasia owner")
+    async with session_factory() as session, session.begin():
+        profile = await session.get(UserProfile, OWNER.id)
+        assert profile is not None
+        profile.ai_opt_out = True
+
+    await s.ai.ask(ask(OWNER))
+
+    assert "Rahasia owner" not in llm.calls[-1][0].content
+
+
 async def test_owner_bypasses_ai_cooldown(session_factory: Factory) -> None:
     s = await make(session_factory, ai={"cooldown_s": 60.0})
     assert s.ai is not None

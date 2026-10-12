@@ -12,6 +12,7 @@ from akizacore.ai.providers.base import LLMProvider
 from akizacore.ai.tools.builtin import build_default_registry
 from akizacore.services.economy import EconomyService
 from akizacore.services.economy_config import EconomyConfig
+from akizacore.services.memory import MemoryService
 from akizacore.services.moderation import ModerationService
 from akizacore.services.onboarding import OnboardingService
 from akizacore.services.settings import SettingsService
@@ -29,6 +30,7 @@ class Services:
     shop: ShopService
     stats: StatsService
     moderation: ModerationService
+    memory: MemoryService
     ai: AIOrchestrator | None  # None bila provider AI belum dikonfigurasi
 
     @classmethod
@@ -58,6 +60,7 @@ class Services:
         shop = ShopService(session_factory, economy=economy)
         stats = StatsService(session_factory, utc_offset_hours=ai_cfg.utc_offset_hours)
         moderation = ModerationService(session_factory)
+        memory = MemoryService(session_factory)
 
         ai: AIOrchestrator | None = None
         if llm is not None:
@@ -71,6 +74,7 @@ class Services:
                 llm=llm,
                 economy=economy,
                 settings=settings,
+                memory=memory,
                 config=ai_cfg,
                 tools=tools,
             )
@@ -81,5 +85,6 @@ class Services:
             shop=shop,
             stats=stats,
             moderation=moderation,
+            memory=memory,
             ai=ai,
         )
