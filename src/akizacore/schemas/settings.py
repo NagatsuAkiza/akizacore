@@ -20,6 +20,7 @@ class SettingsRead(BaseModel):
     welcome_channel_id: int | None = None
     autorole_id: int | None = None
     ai_persona: str | None = None
+    prefix: str = "!"
     features: dict[str, bool] = {}
 
     @field_validator("features")
@@ -36,3 +37,15 @@ class SettingsUpdate(BaseModel):
     welcome_channel_id: int | None = None
     autorole_id: int | None = None
     ai_persona: str | None = None
+    prefix: str | None = None
+
+    @field_validator("prefix")
+    @classmethod
+    def _validate_prefix(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if not 1 <= len(value) <= 5 or any(char.isspace() for char in value):
+            raise ValueError("Prefix harus terdiri dari 1 sampai 5 karakter tanpa spasi.")
+        if value.startswith("<@"):
+            raise ValueError("Prefix tidak boleh berupa mention Discord.")
+        return value

@@ -24,6 +24,7 @@ class ServerSettings(TimestampMixin, Base):
     welcome_channel_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     autorole_id: Mapped[int | None] = mapped_column(BigInteger, default=None)
     ai_persona: Mapped[str | None] = mapped_column(Text, default=None)
+    prefix: Mapped[str] = mapped_column(String(5), default="!", server_default="!")
     features: Mapped[dict[str, bool]] = mapped_column(
         JSONB, default=dict, server_default=text("'{}'::jsonb")
     )

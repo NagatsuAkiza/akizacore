@@ -6,6 +6,7 @@ from sqlalchemy import text
 from akizacore.ai.config import AIConfig
 from akizacore.ai.providers import build_llm
 from akizacore.config import Settings
+from akizacore.core.exceptions import NotFound
 from akizacore.core.loader import load_cogs
 from akizacore.core.tree import AkizaTree
 from akizacore.database import build_engine, build_session_factory
@@ -20,10 +21,11 @@ class AkizaBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True  # privileged: aktifkan di Developer Portal
         super().__init__(
-            command_prefix=commands.when_mentioned,
+            command_prefix=self._command_prefix,
             intents=intents,
             allowed_mentions=discord.AllowedMentions.none(),
             tree_cls=AkizaTree,
+            help_command=None,
         )
         self.settings = settings
         self.engine = build_engine(settings.database_url)
@@ -34,6 +36,25 @@ class AkizaBot(commands.Bot):
             ai_config=AIConfig.from_settings(settings),
             economy_config=EconomyConfig.from_settings(settings),
         )
+        self._prefix_cache: dict[int, str] = {}
+
+    async def _command_prefix(
+        self, _bot: commands.Bot, message: discord.Message
+    ) -> tuple[str, ...]:
+        mentions = tuple(commands.when_mentioned(self, message))
+        if message.guild is None:
+            return mentions
+        prefix = self._prefix_cache.get(message.guild.id)
+        if prefix is None:
+            try:
+                prefix = (await self.services.settings.get(message.guild.id)).prefix
+            except NotFound:
+                prefix = "!"
+            self._prefix_cache[message.guild.id] = prefix
+        return (*mentions, prefix)
+
+    def invalidate_prefix(self, server_id: int) -> None:
+        self._prefix_cache.pop(server_id, None)
 
     def is_owner_user(self, user_id: int) -> bool:
         return user_id == self.settings.owner_user_id

@@ -48,6 +48,7 @@ class SetupCog(commands.Cog):
         embed.add_field(name="Log channel", value=_channel(data.log_channel_id))
         embed.add_field(name="Welcome channel", value=_channel(data.welcome_channel_id))
         embed.add_field(name="Autorole", value=_role(data.autorole_id))
+        embed.add_field(name="Prefix", value=f"`{data.prefix}`")
         features = "\n".join(f"{ON if data.features.get(f) else OFF} {f}" for f in FEATURES)
         embed.add_field(name="Fitur", value=features, inline=False)
         embed.add_field(name="AI persona", value=data.ai_persona or "-", inline=False)
@@ -82,6 +83,21 @@ class SetupCog(commands.Cog):
             interaction.guild.id, SettingsUpdate.model_validate(fields)
         )
         await interaction.response.send_message("Konfigurasi disimpan.", ephemeral=True)
+
+    @setup_group.command(name="prefix", description="Atur prefix command teks bot")
+    @app_commands.describe(prefix="Prefix 1-5 karakter tanpa spasi, contoh: ! atau ?")
+    @app_commands.check(_manage_guild_or_owner)
+    async def prefix(
+        self, interaction: discord.Interaction, prefix: app_commands.Range[str, 1, 5]
+    ) -> None:
+        assert interaction.guild is not None
+        data = SettingsUpdate(prefix=prefix)
+        await self.bot.services.settings.update(interaction.guild.id, data)
+        self.bot.invalidate_prefix(interaction.guild.id)
+        await interaction.response.send_message(
+            f"Prefix disimpan sebagai `{prefix}`. Gunakan `{prefix}help` untuk bantuan command teks.",
+            ephemeral=True,
+        )
 
     @setup_group.command(name="feature", description="Nyalakan / matikan modul")
     @app_commands.describe(feature="Modul yang diatur", enabled="Aktif atau tidak")

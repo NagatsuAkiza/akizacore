@@ -11,3 +11,14 @@ def test_features_merge_with_defaults() -> None:
 def test_update_only_dumps_provided_fields() -> None:
     update = SettingsUpdate(log_channel_id=123)
     assert update.model_dump(exclude_unset=True) == {"log_channel_id": 123}
+
+
+def test_prefix_validation() -> None:
+    assert SettingsUpdate(prefix="?").prefix == "?"
+
+    for invalid in ("", "a b", "<@1>", "abcdef"):
+        try:
+            SettingsUpdate(prefix=invalid)
+        except ValueError:
+            continue
+        raise AssertionError(f"Prefix {invalid!r} seharusnya ditolak")
