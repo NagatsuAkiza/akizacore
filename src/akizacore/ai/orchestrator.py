@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from akizacore.ai.config import AIConfig
-from akizacore.ai.context import build_messages, build_translate_messages
+from akizacore.ai.context import ReplyContext, build_messages, build_translate_messages
 from akizacore.ai.providers.base import ChatMessage, LLMProvider, ToolSpec
 from akizacore.ai.router import match_rule
 from akizacore.ai.tools import ToolContext, ToolExecutor, ToolRegistry
@@ -45,6 +45,7 @@ class AskRequest:
     is_admin: bool = (
         False  # snapshot izin Manage Server dari Discord, dipakai untuk tool khusus admin
     )
+    reply_context: ReplyContext | None = None
 
 
 @dataclass(frozen=True)
@@ -268,7 +269,12 @@ class AIOrchestrator:
             conversation_id = await repo.get_or_create(req.server_id, req.user.id, req.channel_id)
             rows = await repo.recent_messages(conversation_id, cfg.history_messages)
         history = [
-            ChatMessage("assistant" if row.role == "assistant" else "user", row.content)
+            ChatMessage(
+                "assistant" if row.role == "assistant" else "user",
+                f"[AkizaCore]: {row.content}"
+                if row.role == "assistant"
+                else f"[{req.user.username}]: {row.content}",
+            )
             for row in rows
         ]
 
@@ -282,6 +288,8 @@ class AIOrchestrator:
             prompt=prompt,
             history_max_chars=cfg.history_max_chars,
             tools_enabled=bool(specs),
+            is_bot_owner=self._is_owner(req.user.id),
+            reply_context=req.reply_context,
         )
         completion = await self._complete(messages, specs, ctx)
 

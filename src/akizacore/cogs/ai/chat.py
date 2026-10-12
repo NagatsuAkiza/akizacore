@@ -5,6 +5,7 @@ import structlog
 from discord import app_commands
 from discord.ext import commands
 
+from akizacore.ai.context import ReplyContext
 from akizacore.ai.orchestrator import AIOrchestrator, AskRequest, AskResult, TranslateRequest
 from akizacore.core.bot import AkizaBot
 from akizacore.core.exceptions import AkizaError
@@ -48,6 +49,7 @@ class ChatCog(commands.Cog):
         channel_id: int,
         user: discord.User | discord.Member,
         prompt: str,
+        reply_context: ReplyContext | None = None,
     ) -> list[str]:
         result = await self._require_ai().ask(
             AskRequest(
@@ -57,9 +59,37 @@ class ChatCog(commands.Cog):
                 user=to_user_info(user),
                 prompt=prompt,
                 is_admin=self.bot.is_owner_user(user.id) or _is_admin(user),
+                reply_context=reply_context,
             )
         )
         return self._format(result)
+
+    @staticmethod
+    async def _get_reply_context(message: discord.Message) -> ReplyContext | None:
+        reference = message.reference
+        if reference is None or reference.message_id is None:
+            return None
+
+        referenced = reference.resolved
+        if not isinstance(referenced, discord.Message):
+            try:
+                referenced = await message.channel.fetch_message(reference.message_id)
+            except discord.NotFound:
+                return None
+            except (discord.Forbidden, discord.HTTPException):
+                log.warning(
+                    "reply_context_unavailable",
+                    channel_id=message.channel.id,
+                    message_id=reference.message_id,
+                )
+                return None
+
+        return ReplyContext(
+            author_name=referenced.author.display_name,
+            author_id=referenced.author.id,
+            content=referenced.content,
+            is_bot=referenced.author.bot,
+        )
 
     @app_commands.command(name="ask", description="Tanya apa saja ke AI")
     @app_commands.describe(prompt="Pertanyaan atau permintaanmu")
@@ -125,6 +155,7 @@ class ChatCog(commands.Cog):
         if not prompt:
             return
         try:
+            reply_context = await self._get_reply_context(message)
             async with message.channel.typing():
                 await self.bot.services.onboarding.ensure_context(
                     to_user_info(message.author), to_guild_info(message.guild)
@@ -134,6 +165,7 @@ class ChatCog(commands.Cog):
                     channel_id=message.channel.id,
                     user=message.author,
                     prompt=prompt,
+                    reply_context=reply_context,
                 )
         except AkizaError as exc:
             await message.reply(exc.user_message, mention_author=False)

@@ -149,6 +149,16 @@ async def test_owner_can_use_ai_when_module_disabled(session_factory: Factory) -
         await s.ai.ask(ask(OLD))
 
 
+async def test_owner_identity_is_sent_to_ai_prompt(session_factory: Factory) -> None:
+    llm = FakeLLM()
+    s = await make(session_factory, llm=llm)
+    assert s.ai is not None
+
+    await s.ai.ask(ask(OWNER, "siapa saya dalam konteks bot ini?"))
+
+    assert "pemilik bot AkizaCore" in llm.calls[-1][0].content
+
+
 async def test_owner_ignores_ai_opt_out(session_factory: Factory) -> None:
     s = await make(session_factory)
     assert s.ai is not None

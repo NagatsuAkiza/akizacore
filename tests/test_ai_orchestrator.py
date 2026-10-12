@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from akizacore.ai.config import AIConfig
+from akizacore.ai.context import ReplyContext
 from akizacore.ai.orchestrator import AskRequest
 from akizacore.core.exceptions import (
     InsufficientFunds,
@@ -57,6 +58,48 @@ async def test_ask_charges_coins_and_remembers_history(session_factory: Factory)
     await services.ai.ask(req("lanjut"))
     # system + (user, assistant) dari giliran 1 + user baru
     assert [m.role for m in llm.calls[1]] == ["system", "user", "assistant", "user"]
+
+
+async def test_reply_context_is_forwarded_and_history_has_author_labels(
+    session_factory: Factory,
+) -> None:
+    llm = FakeLLM("jawaban")
+    services = await make(session_factory, llm)
+    assert services.ai is not None
+
+    await services.ai.ask(
+        AskRequest(
+            server_id=GUILD.id,
+            server_name=GUILD.name,
+            channel_id=5,
+            user=USER,
+            prompt="itu bukan saya",
+            reply_context=ReplyContext(
+                author_name="AkizaCore",
+                author_id=123,
+                content="Itu angka XP lu, kan?",
+                is_bot=True,
+            ),
+        )
+    )
+
+    system, prompt = llm.calls[-1][0], llm.calls[-1][-1]
+    assert "AkizaCore" in system.content
+    assert "Itu angka XP lu" in system.content
+    assert prompt.content == "itu bukan saya"
+
+    await services.ai.ask(
+        AskRequest(
+            server_id=GUILD.id,
+            server_name=GUILD.name,
+            channel_id=5,
+            user=USER,
+            prompt="lanjut",
+        )
+    )
+    history = llm.calls[-1][1:-1]
+    assert history[0].content.startswith("[u]: ")
+    assert history[1].content.startswith("[AkizaCore]: ")
 
 
 async def test_ai_must_be_enabled_for_server(session_factory: Factory) -> None:
