@@ -7,8 +7,10 @@ from discord.ext import commands
 
 from akizacore.ai.context import ReplyContext
 from akizacore.ai.orchestrator import AIOrchestrator, AskRequest, AskResult, TranslateRequest
+from akizacore.ai.tools.base import ModerationGateway
 from akizacore.core.bot import AkizaBot
 from akizacore.core.exceptions import AkizaError
+from akizacore.services.moderation import ModerationService
 from akizacore.utils.converters import to_guild_info, to_user_info
 from akizacore.utils.text import chunk_text
 
@@ -18,6 +20,81 @@ log = structlog.get_logger()
 def _is_admin(user: discord.User | discord.Member) -> bool:
     """Snapshot izin Manage Server; menentukan apakah tool khusus admin boleh dipakai."""
     return isinstance(user, discord.Member) and user.guild_permissions.manage_guild
+
+
+class _DiscordModerationGateway(ModerationGateway):
+    def __init__(
+        self,
+        *,
+        guild: discord.Guild,
+        actor: discord.User | discord.Member,
+        service: ModerationService,
+    ) -> None:
+        self.guild = guild
+        self.actor = actor
+        self.service = service
+
+    async def _member(self, user_id: int) -> discord.Member:
+        member = self.guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await self.guild.fetch_member(user_id)
+            except discord.NotFound as exc:
+                raise AkizaError("Member target tidak ditemukan di server ini.") from exc
+            except discord.Forbidden as exc:
+                raise AkizaError("Bot tidak bisa membaca member target.") from exc
+        if member.bot:
+            raise AkizaError("Bot tidak bisa menjadi target moderasi.")
+        if member.id == self.guild.owner_id:
+            raise AkizaError("Tidak bisa memoderasi owner server.")
+        if member.id == self.actor.id:
+            raise AkizaError("Tidak bisa memoderasi diri sendiri.")
+        if self.guild.me is not None and member.top_role >= self.guild.me.top_role:
+            raise AkizaError("Role target lebih tinggi dari role bot.")
+        if (
+            isinstance(self.actor, discord.Member)
+            and self.actor.id != self.guild.owner_id
+            and member.top_role >= self.actor.top_role
+        ):
+            raise AkizaError("Role target sama atau lebih tinggi dari kamu.")
+        return member
+
+    async def warn(self, target_id: int, reason: str) -> str:
+        member = await self._member(target_id)
+        result = await self.service.warn(
+            server_id=self.guild.id,
+            user_id=member.id,
+            mod_id=self.actor.id,
+            reason=reason,
+        )
+        return f"{member.display_name} diberi warning (total aktif: {result.total})."
+
+    async def warnings(self, target_id: int) -> str:
+        member = await self._member(target_id)
+        items = await self.service.warnings(self.guild.id, member.id)
+        if not items:
+            return f"{member.display_name} tidak memiliki warning aktif."
+        return "\n".join(f"#{item.id} oleh <@{item.mod_id}>: {item.reason}" for item in items)
+
+    async def clear_warnings(self, target_id: int) -> str:
+        member = await self._member(target_id)
+        count = await self.service.clear_warnings(
+            server_id=self.guild.id,
+            user_id=member.id,
+            mod_id=self.actor.id,
+        )
+        return f"{count} warning aktif milik {member.display_name} dihapus."
+
+    async def modlog(self, target_id: int | None) -> str:
+        if target_id is not None:
+            await self._member(target_id)
+        entries = await self.service.recent_logs(self.guild.id, limit=10, target_id=target_id)
+        if not entries:
+            return "Belum ada catatan moderasi."
+        return "\n".join(
+            f"#{entry.id} {entry.action} target <@{entry.target_id}>: {entry.reason}"
+            for entry in entries
+        )
 
 
 class ChatCog(commands.Cog):
@@ -60,6 +137,11 @@ class ChatCog(commands.Cog):
                 prompt=prompt,
                 is_admin=self.bot.is_owner_user(user.id) or _is_admin(user),
                 reply_context=reply_context,
+                moderation=_DiscordModerationGateway(
+                    guild=guild,
+                    actor=user,
+                    service=self.bot.services.moderation,
+                ),
             )
         )
         return self._format(result)

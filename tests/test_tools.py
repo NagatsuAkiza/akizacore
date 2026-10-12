@@ -1,10 +1,11 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import BaseModel, Field
 
 from akizacore.ai.router import match_rule
-from akizacore.ai.tools import Tool, ToolContext, ToolExecutor, ToolRegistry
+from akizacore.ai.tools import ModerationGateway, Tool, ToolContext, ToolExecutor, ToolRegistry
 from akizacore.schemas.discord import UserInfo
 
 USER = UserInfo(id=1, username="u")
@@ -16,6 +17,27 @@ class NoArgs(BaseModel):
 
 class NumArgs(BaseModel):
     n: int = Field(1, ge=1, le=5, description="angka")
+
+
+class FakeModerationGateway(ModerationGateway):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int | None, str | None]] = []
+
+    async def warn(self, target_id: int, reason: str) -> str:
+        self.calls.append(("warn", target_id, reason))
+        return "warned"
+
+    async def warnings(self, target_id: int) -> str:
+        self.calls.append(("warnings", target_id, None))
+        return "warnings"
+
+    async def clear_warnings(self, target_id: int) -> str:
+        self.calls.append(("clear", target_id, None))
+        return "cleared"
+
+    async def modlog(self, target_id: int | None) -> str:
+        self.calls.append(("modlog", target_id, None))
+        return "log"
 
 
 def ctx(*, is_admin: bool = False, economy: bool = True) -> ToolContext:
@@ -118,6 +140,37 @@ async def test_executor_handles_timeout_failure_and_long_output() -> None:
     assert "timeout" in await executor.run_named("slow", "{}", ctx())
     assert "gagal" in await executor.run_named("failing", "{}", ctx())
     assert len(await executor.run_named("verbose", "{}", ctx())) <= 1500
+
+
+async def test_moderation_tools_require_admin_and_use_system_gateway() -> None:
+    from akizacore.ai.tools.builtin import build_default_registry
+
+    gateway = FakeModerationGateway()
+    context = ToolContext(
+        server_id=1,
+        user=USER,
+        is_admin=True,
+        features={"moderation": True},
+        moderation=gateway,
+    )
+    registry = build_default_registry(
+        economy=AsyncMock(),
+        shop=AsyncMock(),
+        stats=AsyncMock(),
+    )
+    executor = ToolExecutor(registry)
+
+    assert "moderation_warn" in offered(registry, context)
+    assert "moderation_warn" not in offered(registry, ctx())
+    assert (
+        await executor.run_named(
+            "moderation_warn",
+            '{"user_id": 42, "reason": "spam"}',
+            context,
+        )
+        == "warned"
+    )
+    assert gateway.calls == [("warn", 42, "spam")]
 
 
 @pytest.mark.parametrize(

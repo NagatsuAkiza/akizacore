@@ -38,7 +38,7 @@ class ToolExecutor:
         if reason is not None:
             log.info("tool_denied", tool=name, user_id=ctx.user.id, server_id=ctx.server_id)
             return reason
-        if tool.side_effect != "read":
+        if tool.side_effect == "destructive":
             return (
                 "Ditahan: aksi ini butuh konfirmasi pengguna dan belum bisa dijalankan lewat chat."
             )

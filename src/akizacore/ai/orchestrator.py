@@ -13,7 +13,7 @@ from akizacore.ai.config import AIConfig
 from akizacore.ai.context import ReplyContext, build_messages, build_translate_messages
 from akizacore.ai.providers.base import ChatMessage, LLMProvider, ToolSpec
 from akizacore.ai.router import match_rule
-from akizacore.ai.tools import ToolContext, ToolExecutor, ToolRegistry
+from akizacore.ai.tools import ModerationGateway, ToolContext, ToolExecutor, ToolRegistry
 from akizacore.core.exceptions import (
     PermissionDenied,
     ProviderUnavailable,
@@ -46,6 +46,7 @@ class AskRequest:
         False  # snapshot izin Manage Server dari Discord, dipakai untuk tool khusus admin
     )
     reply_context: ReplyContext | None = None
+    moderation: ModerationGateway | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ class AIOrchestrator:
             user=req.user,
             is_admin=req.is_admin,
             features=admission.features,
+            moderation=req.moderation,
         )
 
         ruled = await self._try_rule(prompt, ctx)

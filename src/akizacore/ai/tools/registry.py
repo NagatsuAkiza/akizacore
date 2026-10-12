@@ -27,10 +27,9 @@ class ToolRegistry:
         return None
 
     def specs_for(self, ctx: ToolContext) -> list[ToolSpec]:
-        """Tool yang ditawarkan ke LLM. Hanya tool baca-saja: aksi tulis/destruktif butuh
-        alur konfirmasi pengguna (belum ada), jadi tidak pernah ditawarkan lewat chat."""
+        """Tool yang ditawarkan ke LLM. Aksi destruktif tetap harus melalui konfirmasi."""
         return [
             tool.spec()
             for tool in self._tools.values()
-            if tool.side_effect == "read" and self.unavailable_reason(tool, ctx) is None
+            if tool.side_effect != "destructive" and self.unavailable_reason(tool, ctx) is None
         ]

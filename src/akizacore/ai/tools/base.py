@@ -1,6 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -31,6 +31,19 @@ class ToolContext:
     user: UserInfo
     is_admin: bool = False
     features: dict[str, bool] = field(default_factory=dict)
+    moderation: "ModerationGateway | None" = None
+
+
+class ModerationGateway(Protocol):
+    """Adapter Discord yang menjaga detail member/role di luar AI layer."""
+
+    async def warn(self, target_id: int, reason: str) -> str: ...
+
+    async def warnings(self, target_id: int) -> str: ...
+
+    async def clear_warnings(self, target_id: int) -> str: ...
+
+    async def modlog(self, target_id: int | None) -> str: ...
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[str]]

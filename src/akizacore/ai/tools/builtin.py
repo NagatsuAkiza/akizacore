@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from akizacore.ai.tools.base import Tool, ToolContext, clean_text
+from akizacore.ai.tools.base import ModerationGateway, Tool, ToolContext, clean_text
 from akizacore.ai.tools.registry import ToolRegistry
 from akizacore.services.economy import EconomyService
 from akizacore.services.shop import ShopService
@@ -18,10 +18,22 @@ class LeaderboardArgs(BaseModel):
     limit: int = Field(5, ge=1, le=10, description="Jumlah baris yang ditampilkan (1-10)")
 
 
+class ModerationTargetArgs(BaseModel):
+    user_id: int = Field(..., gt=0, description="ID Discord member target")
+
+
+class ModerationReasonArgs(ModerationTargetArgs):
+    reason: str = Field("Tanpa alasan", min_length=1, max_length=300)
+
+
+class ModlogArgs(BaseModel):
+    user_id: int | None = Field(None, gt=0, description="Filter ID member, opsional")
+
+
 def build_default_registry(
     *, economy: EconomyService, shop: ShopService, stats: StatsService
 ) -> ToolRegistry:
-    """Tool bawaan. Semuanya baca-saja dan memakai identitas dari ToolContext, bukan dari LLM."""
+    """Build built-in tools using identity and authorization from ToolContext."""
 
     async def get_balance(ctx: ToolContext, args: NoArgs) -> str:
         p = await economy.profile(ctx.server_id, ctx.user.id)
@@ -61,6 +73,23 @@ def build_default_registry(
             f"{s.ai_requests_today} request AI hari ini ({s.ai_requests_7d} dalam 7 hari)."
         )
 
+    async def moderation_gateway(ctx: ToolContext) -> "ModerationGateway":
+        if ctx.moderation is None:
+            raise RuntimeError("moderation gateway tidak tersedia")
+        return ctx.moderation
+
+    async def warn_member(ctx: ToolContext, args: ModerationReasonArgs) -> str:
+        return await (await moderation_gateway(ctx)).warn(args.user_id, args.reason)
+
+    async def list_warnings(ctx: ToolContext, args: ModerationTargetArgs) -> str:
+        return await (await moderation_gateway(ctx)).warnings(args.user_id)
+
+    async def clear_member_warnings(ctx: ToolContext, args: ModerationTargetArgs) -> str:
+        return await (await moderation_gateway(ctx)).clear_warnings(args.user_id)
+
+    async def show_modlog(ctx: ToolContext, args: ModlogArgs) -> str:
+        return await (await moderation_gateway(ctx)).modlog(args.user_id)
+
     return ToolRegistry(
         [
             Tool(
@@ -90,6 +119,40 @@ def build_default_registry(
                 NoArgs,
                 get_server_stats,
                 permission="admin",
+            ),
+            Tool(
+                "moderation_warn",
+                "Beri warning kepada member. Memerlukan izin moderasi.",
+                ModerationReasonArgs,
+                warn_member,
+                permission="admin",
+                feature="moderation",
+                side_effect="write",
+            ),
+            Tool(
+                "moderation_warnings",
+                "Lihat warning aktif milik member.",
+                ModerationTargetArgs,
+                list_warnings,
+                permission="admin",
+                feature="moderation",
+            ),
+            Tool(
+                "moderation_clear_warnings",
+                "Hapus seluruh warning aktif milik member.",
+                ModerationTargetArgs,
+                clear_member_warnings,
+                permission="admin",
+                feature="moderation",
+                side_effect="write",
+            ),
+            Tool(
+                "moderation_modlog",
+                "Lihat catatan moderasi terbaru, opsional berdasarkan member.",
+                ModlogArgs,
+                show_modlog,
+                permission="admin",
+                feature="moderation",
             ),
         ]
     )
