@@ -9,7 +9,11 @@ _RETRYABLE_STATUS = {408, 409, 425, 429}
 
 
 class OpenAICompatibleProvider:
-    """Klien untuk endpoint `/chat/completions` format OpenAI."""
+    """Klien untuk endpoint `/chat/completions` format OpenAI.
+
+    `extra_body` dipakai untuk parameter khusus provider (mis. `reasoning_effort`).
+    Field inti (model, messages, temperature, max_tokens) tidak bisa ditimpa lewat extra_body.
+    """
 
     def __init__(
         self,
@@ -18,12 +22,14 @@ class OpenAICompatibleProvider:
         base_url: str,
         api_key: str,
         model: str,
+        extra_body: dict[str, object] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.name = name
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._api_key = api_key
         self._model = model
+        self._extra_body = dict(extra_body or {})
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
 
     async def chat(
@@ -39,6 +45,9 @@ class OpenAICompatibleProvider:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        for key, value in self._extra_body.items():
+            payload.setdefault(key, value)
+
         try:
             response = await self._client.post(
                 self._url, json=payload, headers={"Authorization": f"Bearer {self._api_key}"}
@@ -54,7 +63,9 @@ class OpenAICompatibleProvider:
 
         try:
             data = response.json()
-            content = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason")
             usage = data.get("usage") or {}
             model = str(data.get("model") or self._model)
             prompt_tokens = int(usage.get("prompt_tokens") or 0)
@@ -64,7 +75,14 @@ class OpenAICompatibleProvider:
 
         text = content.strip() if isinstance(content, str) else ""
         if not text:
-            raise ProviderUnavailable(f"{self.name}: respons kosong")
+            # Model reasoning bisa menghabiskan seluruh batas token untuk "berpikir":
+            # mengulang request yang sama tidak akan membantu, jadi jangan di-retry.
+            truncated = finish_reason == "length"
+            raise ProviderUnavailable(
+                f"{self.name}: respons kosong (finish_reason={finish_reason}); "
+                "naikkan AI_MAX_OUTPUT_TOKENS atau turunkan reasoning_effort",
+                retryable=not truncated,
+            )
         return LLMResponse(
             content=text,
             model=model,

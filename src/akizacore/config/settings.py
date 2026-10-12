@@ -37,18 +37,20 @@ class Settings(BaseSettings):
     ai_api_key: SecretStr | None = None
     ai_model_fast: str | None = None
     ai_model_smart: str | None = None
+    ai_extra_body: str | None = None  # JSON, mis. {"reasoning_effort":"low"}
     ai_fallback_base_url: str | None = None
     ai_fallback_api_key: SecretStr | None = None
     ai_fallback_model: str | None = None
+    ai_fallback_extra_body: str | None = None
 
     # Batas dan biaya AI
     ai_cost_coins: int = 5
     ai_cooldown_s: float = 10.0
-    ai_daily_global_limit: int = 500
-    ai_daily_user_limit: int = 30
-    ai_history_messages: int = 10
+    ai_daily_global_limit: int = 100
+    ai_daily_user_limit: int = 15
+    ai_history_messages: int = 6
     ai_max_input_chars: int = 1500
-    ai_max_output_tokens: int = 600
+    ai_max_output_tokens: int = 1024
     quota_utc_offset_hours: int = 7  # reset kuota harian tengah malam WIB
 
     economy_starter_balance: int = 100

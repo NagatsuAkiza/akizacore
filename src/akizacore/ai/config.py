@@ -8,12 +8,12 @@ from akizacore.config import Settings
 class AIConfig:
     cost_coins: int = 5
     cooldown_s: float = 10.0
-    daily_global_limit: int = 500
-    daily_user_limit: int = 30
-    history_messages: int = 10
+    daily_global_limit: int = 100
+    daily_user_limit: int = 15
+    history_messages: int = 6
     history_max_chars: int = 6000
     max_input_chars: int = 1500
-    max_output_tokens: int = 600
+    max_output_tokens: int = 1024
     utc_offset_hours: int = 7
 
     @classmethod
