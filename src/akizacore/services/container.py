@@ -37,14 +37,19 @@ class Services:
         llm: LLMProvider | None = None,
         ai_config: AIConfig | None = None,
         economy_config: EconomyConfig | None = None,
+        owner_user_id: int | None = None,
         starter_balance: int | None = None,
         clock: Callable[[], datetime] | None = None,
         rng: random.Random | None = None,
     ) -> Self:
         eco_cfg = economy_config or EconomyConfig()
+        if owner_user_id is not None:
+            eco_cfg = replace(eco_cfg, owner_user_id=owner_user_id)
         if starter_balance is not None:
             eco_cfg = replace(eco_cfg, starter_balance=starter_balance)
         ai_cfg = ai_config or AIConfig()
+        if owner_user_id is not None:
+            ai_cfg = replace(ai_cfg, owner_user_id=owner_user_id)
 
         settings = SettingsService(session_factory)
         economy = EconomyService(session_factory, config=eco_cfg, clock=clock, rng=rng)

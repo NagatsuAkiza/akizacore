@@ -120,6 +120,7 @@ class AIOrchestrator:
     # ---------- Use case ----------
     async def ask(self, req: AskRequest) -> AskResult:
         prompt = self._validate_text(req.prompt)
+        is_owner = self._is_owner(req.user.id)
         admission = await self._admit(req.server_id, req.user.id)
         ctx = ToolContext(
             server_id=req.server_id,
@@ -132,8 +133,9 @@ class AIOrchestrator:
         if ruled is not None:
             return ruled
 
-        self._check_cooldown(req.user.id)
-        await self._check_quota(req.user.id)
+        if not is_owner:
+            self._check_cooldown(req.user.id)
+            await self._check_quota(req.user.id)
 
         async def work(charged: int, balance: int | None) -> AskResult:
             return await self._chat(req, prompt, admission, ctx, charged, balance)
@@ -148,8 +150,9 @@ class AIOrchestrator:
         if len(target) < 2:
             raise ValidationFailed("Bahasa tujuan tidak valid.")
         await self._admit(req.server_id, req.user.id)
-        self._check_cooldown(req.user.id)
-        await self._check_quota(req.user.id)
+        if not self._is_owner(req.user.id):
+            self._check_cooldown(req.user.id)
+            await self._check_quota(req.user.id)
 
         async def work(charged: int, balance: int | None) -> AskResult:
             response = await self._llm.chat(
@@ -200,12 +203,13 @@ class AIOrchestrator:
 
     async def _admit(self, server_id: int, user_id: int) -> _Admission:
         server_settings = await self._settings.get(server_id)
-        if not server_settings.features.get("ai"):
+        is_owner = self._is_owner(user_id)
+        if not is_owner and not server_settings.features.get("ai"):
             raise PermissionDenied(
                 "Modul AI belum aktif di server ini. Admin bisa menyalakannya dengan /setup feature."
             )
         language, opted_out = await self._load_profile(user_id)
-        if opted_out:
+        if opted_out and not is_owner:
             raise PermissionDenied("Kamu menonaktifkan fitur AI untuk akunmu.")
         return _Admission(language, server_settings.ai_persona, server_settings.features)
 
@@ -237,7 +241,7 @@ class AIOrchestrator:
     ) -> AskResult:
         charged = 0
         balance: int | None = None
-        if self._cfg.cost_coins > 0:
+        if self._cfg.cost_coins > 0 and not self._is_owner(user_id):
             balance = await self._economy.charge(
                 server_id, user_id, self._cfg.cost_coins, kind=kind, meta=meta
             )
@@ -359,6 +363,9 @@ class AIOrchestrator:
             if profile is None:
                 return "id", False
             return profile.language, profile.ai_opt_out
+
+    def _is_owner(self, user_id: int) -> bool:
+        return self._cfg.owner_user_id == user_id
 
     def _check_cooldown(self, user_id: int) -> None:
         now = self._clock()

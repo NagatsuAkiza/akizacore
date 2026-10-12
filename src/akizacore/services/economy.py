@@ -160,9 +160,11 @@ class EconomyService:
         async with session_scope(self._sf) as session:
             repo = EconomyRepository(session)
             account = await self._lock(repo, server_id, user_id)
-            if account.last_daily is not None and self._local_date(
-                account.last_daily
-            ) >= self._local_date(now):
+            if (
+                not self._is_owner(user_id)
+                and account.last_daily is not None
+                and self._local_date(account.last_daily) >= self._local_date(now)
+            ):
                 raise QuotaExceeded(
                     f"Daily hari ini sudah diambil. Reset tengah malam {self._tz_label()}."
                 )
@@ -185,7 +187,7 @@ class EconomyService:
             repo = EconomyRepository(session)
             account = await self._lock(repo, server_id, user_id)
             last = await repo.last_transaction_at(server_id, user_id, "work")
-            if last is not None:
+            if last is not None and not self._is_owner(user_id):
                 elapsed = (now - last).total_seconds()
                 if elapsed < cfg.work_cooldown_s:
                     minutes = math.ceil((cfg.work_cooldown_s - elapsed) / 60)
@@ -216,7 +218,7 @@ class EconomyService:
             raise ValidationFailed("Tidak bisa transfer ke diri sendiri.")
         now = self._clock()
         age_days = (now - snowflake_to_datetime(sender_id)).days
-        if age_days < cfg.transfer_min_account_age_days:
+        if age_days < cfg.transfer_min_account_age_days and not self._is_owner(sender_id):
             raise PermissionDenied(
                 f"Akun Discord kamu harus berumur minimal "
                 f"{cfg.transfer_min_account_age_days} hari untuk transfer."
@@ -238,7 +240,7 @@ class EconomyService:
                 server_id, sender_id, "transfer_out", self._local_day_start(now)
             )
             remaining = cfg.transfer_daily_limit - sent_today
-            if amount > remaining:
+            if amount > remaining and not self._is_owner(sender_id):
                 raise QuotaExceeded(
                     f"Batas transfer harian {cfg.transfer_daily_limit} koin "
                     f"(sisa hari ini: {max(remaining, 0)})."
@@ -256,6 +258,8 @@ class EconomyService:
     # ---------- XP dari chat ----------
     def message_xp_ready(self, server_id: int, user_id: int) -> bool:
         """Cek murah (tanpa DB): apakah cooldown XP chat user ini sudah lewat."""
+        if self._is_owner(user_id):
+            return True
         last = self._xp_last.get((server_id, user_id))
         return last is None or self._mono() - last >= self._cfg.message_xp_cooldown_s
 
@@ -281,6 +285,9 @@ class EconomyService:
         if len(self._xp_last) > 10_000:  # jaga memori: buang entri yang cooldown-nya sudah lewat
             cooldown = self._cfg.message_xp_cooldown_s
             self._xp_last = {k: t for k, t in self._xp_last.items() if now - t < cooldown}
+
+    def _is_owner(self, user_id: int) -> bool:
+        return self._cfg.owner_user_id == user_id
 
     # ---------- Internal ----------
     @staticmethod

@@ -11,6 +11,14 @@ ON = "\u2705"
 OFF = "\u274c"
 
 
+async def _manage_guild_or_owner(interaction: discord.Interaction) -> bool:
+    bot = cast(AkizaBot, interaction.client)
+    return bot.is_owner_user(interaction.user.id) or (
+        isinstance(interaction.user, discord.Member)
+        and interaction.user.guild_permissions.manage_guild
+    )
+
+
 def _channel(channel_id: int | None) -> str:
     return f"<#{channel_id}>" if channel_id else "-"
 
@@ -26,14 +34,13 @@ class SetupCog(commands.Cog):
         name="setup",
         description="Konfigurasi bot untuk server ini",
         guild_only=True,
-        default_permissions=discord.Permissions(manage_guild=True),
     )
 
     def __init__(self, bot: AkizaBot) -> None:
         self.bot = bot
 
     @setup_group.command(name="view", description="Lihat konfigurasi server saat ini")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(_manage_guild_or_owner)
     async def view(self, interaction: discord.Interaction) -> None:
         assert interaction.guild is not None
         data = await self.bot.services.settings.get(interaction.guild.id)
@@ -52,7 +59,7 @@ class SetupCog(commands.Cog):
         welcome_channel="Channel untuk pesan sambutan",
         autorole="Role otomatis untuk member baru",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(_manage_guild_or_owner)
     async def channels(
         self,
         interaction: discord.Interaction,
@@ -79,7 +86,7 @@ class SetupCog(commands.Cog):
     @setup_group.command(name="feature", description="Nyalakan / matikan modul")
     @app_commands.describe(feature="Modul yang diatur", enabled="Aktif atau tidak")
     @app_commands.choices(feature=[app_commands.Choice(name=f, value=f) for f in FEATURES])
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(_manage_guild_or_owner)
     async def feature(
         self,
         interaction: discord.Interaction,

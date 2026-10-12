@@ -6,6 +6,7 @@ from akizacore.config import Settings
 
 @dataclass(frozen=True)
 class AIConfig:
+    owner_user_id: int | None = None
     cost_coins: int = 5
     cooldown_s: float = 10.0
     daily_global_limit: int = 100
@@ -22,6 +23,7 @@ class AIConfig:
     @classmethod
     def from_settings(cls, settings: Settings) -> Self:
         return cls(
+            owner_user_id=settings.owner_user_id,
             cost_coins=settings.ai_cost_coins,
             cooldown_s=settings.ai_cooldown_s,
             daily_global_limit=settings.ai_daily_global_limit,

@@ -56,7 +56,7 @@ class ChatCog(commands.Cog):
                 channel_id=channel_id,
                 user=to_user_info(user),
                 prompt=prompt,
-                is_admin=_is_admin(user),
+                is_admin=self.bot.is_owner_user(user.id) or _is_admin(user),
             )
         )
         return self._format(result)

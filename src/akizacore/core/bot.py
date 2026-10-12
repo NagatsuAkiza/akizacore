@@ -35,6 +35,9 @@ class AkizaBot(commands.Bot):
             economy_config=EconomyConfig.from_settings(settings),
         )
 
+    def is_owner_user(self, user_id: int) -> bool:
+        return user_id == self.settings.owner_user_id
+
     async def setup_hook(self) -> None:
         await self._check_database()
         log.info("ai_provider", enabled=self.llm is not None)

@@ -20,4 +20,4 @@ mypy src                         # type check
 pytest                           # test
 ```
 
-Arsitektur dan roadmap: lihat `docs/Project_Plan.md`.
+Arsitektur dan roadmap: lihat `docs/AkizaCore — Project Plan.md`.

@@ -6,6 +6,7 @@ from akizacore.config import Settings
 
 @dataclass(frozen=True)
 class EconomyConfig:
+    owner_user_id: int | None = None
     starter_balance: int = 100
     daily_amount: int = 50
     daily_xp: int = 20
@@ -23,6 +24,7 @@ class EconomyConfig:
     @classmethod
     def from_settings(cls, settings: Settings) -> Self:
         return cls(
+            owner_user_id=settings.owner_user_id,
             starter_balance=settings.economy_starter_balance,
             daily_amount=settings.economy_daily_amount,
             daily_xp=settings.economy_daily_xp,
