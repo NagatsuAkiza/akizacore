@@ -14,6 +14,11 @@ class NotFound(AkizaError):
     http_status = 404
 
 
+class ValidationFailed(AkizaError):
+    user_message = "Input tidak valid."
+    http_status = 400
+
+
 class PermissionDenied(AkizaError):
     user_message = "Kamu tidak punya izin untuk ini."
     http_status = 403
