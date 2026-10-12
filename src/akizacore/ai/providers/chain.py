@@ -3,7 +3,7 @@ from collections.abc import Sequence
 
 import structlog
 
-from akizacore.ai.providers.base import ChatMessage, LLMProvider, LLMResponse
+from akizacore.ai.providers.base import ChatMessage, LLMProvider, LLMResponse, ToolSpec
 from akizacore.core.exceptions import ProviderUnavailable
 
 log = structlog.get_logger()
@@ -30,6 +30,7 @@ class ResilientProvider:
         self,
         messages: Sequence[ChatMessage],
         *,
+        tools: Sequence[ToolSpec] | None = None,
         temperature: float = 0.7,
         max_tokens: int = 600,
     ) -> LLMResponse:
@@ -38,7 +39,7 @@ class ResilientProvider:
             for attempt in range(self._attempts):
                 try:
                     return await provider.chat(
-                        messages, temperature=temperature, max_tokens=max_tokens
+                        messages, tools=tools, temperature=temperature, max_tokens=max_tokens
                     )
                 except ProviderUnavailable as exc:
                     last_error = exc

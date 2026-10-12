@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     ai_fallback_extra_body: str | None = None
 
     # Batas dan biaya AI
-    ai_cost_coins: int = 5
+    ai_cost_coins: int = 15
     ai_cooldown_s: float = 10.0
     ai_daily_global_limit: int = 100
     ai_daily_user_limit: int = 15
