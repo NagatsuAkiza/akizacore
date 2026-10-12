@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from akizacore.ai.config import AIConfig
 from akizacore.ai.orchestrator import AIOrchestrator
 from akizacore.ai.providers.base import LLMProvider
+from akizacore.ai.tools.builtin import build_default_registry
 from akizacore.services.economy import EconomyService
 from akizacore.services.economy_config import EconomyConfig
 from akizacore.services.onboarding import OnboardingService
 from akizacore.services.settings import SettingsService
 from akizacore.services.shop import ShopService
+from akizacore.services.stats import StatsService
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,7 @@ class Services:
     settings: SettingsService
     economy: EconomyService
     shop: ShopService
+    stats: StatsService
     ai: AIOrchestrator | None  # None bila provider AI belum dikonfigurasi
 
     @classmethod
@@ -41,23 +44,33 @@ class Services:
         eco_cfg = economy_config or EconomyConfig()
         if starter_balance is not None:
             eco_cfg = replace(eco_cfg, starter_balance=starter_balance)
+        ai_cfg = ai_config or AIConfig()
+
         settings = SettingsService(session_factory)
         economy = EconomyService(session_factory, config=eco_cfg, clock=clock, rng=rng)
-        ai = (
-            AIOrchestrator(
+        shop = ShopService(session_factory, economy=economy)
+        stats = StatsService(session_factory, utc_offset_hours=ai_cfg.utc_offset_hours)
+
+        ai: AIOrchestrator | None = None
+        if llm is not None:
+            tools = (
+                build_default_registry(economy=economy, shop=shop, stats=stats)
+                if ai_cfg.tools_enabled
+                else None
+            )
+            ai = AIOrchestrator(
                 session_factory,
                 llm=llm,
                 economy=economy,
                 settings=settings,
-                config=ai_config or AIConfig(),
+                config=ai_cfg,
+                tools=tools,
             )
-            if llm is not None
-            else None
-        )
         return cls(
             onboarding=OnboardingService(session_factory),
             settings=settings,
             economy=economy,
-            shop=ShopService(session_factory, economy=economy),
+            shop=shop,
+            stats=stats,
             ai=ai,
         )

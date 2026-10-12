@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     ai_max_output_tokens: int = 1024
     quota_utc_offset_hours: int = 7  # reset kuota harian tengah malam WIB
 
+    ai_tools_enabled: bool = True  # False = matikan tool calling dan rule router (hanya chat biasa)
+    ai_max_tool_rounds: int = 3
+    ai_retention_days: int = 30
     economy_starter_balance: int = 100
     economy_daily_amount: int = 50
     economy_daily_xp: int = 20

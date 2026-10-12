@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -42,6 +43,17 @@ class ConversationRepository:
             for role, content, tokens in items
         )
         await self.session.flush()
+
+    async def purge_older_than(self, cutoff: datetime) -> tuple[int, int]:
+        """Hapus pesan lama, lalu percakapan yang sudah lama tidak aktif (sisa pesannya ikut terhapus)."""
+        messages = await self.session.execute(delete(Message).where(Message.created_at < cutoff))
+        conversations = await self.session.execute(
+            delete(Conversation).where(Conversation.last_active_at < cutoff)
+        )
+        return (
+            max(int(getattr(messages, "rowcount", 0) or 0), 0),
+            max(int(getattr(conversations, "rowcount", 0) or 0), 0),
+        )
 
     async def delete_for_user(self, server_id: int, user_id: int) -> int:
         stmt = (

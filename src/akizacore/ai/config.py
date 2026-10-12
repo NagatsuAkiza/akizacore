@@ -15,6 +15,9 @@ class AIConfig:
     max_input_chars: int = 1500
     max_output_tokens: int = 1024
     utc_offset_hours: int = 7
+    tools_enabled: bool = True
+    max_tool_rounds: int = 3
+    retention_days: int = 30
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Self:
@@ -27,4 +30,7 @@ class AIConfig:
             max_input_chars=settings.ai_max_input_chars,
             max_output_tokens=settings.ai_max_output_tokens,
             utc_offset_hours=settings.quota_utc_offset_hours,
+            tools_enabled=settings.ai_tools_enabled,
+            max_tool_rounds=settings.ai_max_tool_rounds,
+            retention_days=settings.ai_retention_days,
         )

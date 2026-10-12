@@ -1,17 +1,25 @@
 import asyncio
+import json
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from akizacore.ai.config import AIConfig
-from akizacore.ai.context import build_messages
-from akizacore.ai.providers.base import ChatMessage, LLMProvider
-from akizacore.core.exceptions import PermissionDenied, QuotaExceeded, ValidationFailed
+from akizacore.ai.context import build_messages, build_translate_messages
+from akizacore.ai.providers.base import ChatMessage, LLMProvider, ToolSpec
+from akizacore.ai.router import match_rule
+from akizacore.ai.tools import ToolContext, ToolExecutor, ToolRegistry
+from akizacore.core.exceptions import (
+    PermissionDenied,
+    ProviderUnavailable,
+    QuotaExceeded,
+    ValidationFailed,
+)
 from akizacore.database.repositories import (
     AIUsageRepository,
     ConversationRepository,
@@ -24,6 +32,8 @@ from akizacore.services.settings import SettingsService
 
 log = structlog.get_logger()
 
+MAX_CALLS_PER_ROUND = 4
+
 
 @dataclass(frozen=True)
 class AskRequest:
@@ -32,6 +42,17 @@ class AskRequest:
     channel_id: int
     user: UserInfo
     prompt: str
+    is_admin: bool = (
+        False  # snapshot izin Manage Server dari Discord, dipakai untuk tool khusus admin
+    )
+
+
+@dataclass(frozen=True)
+class TranslateRequest:
+    server_id: int
+    user: UserInfo
+    text: str
+    target_language: str
 
 
 @dataclass(frozen=True)
@@ -40,12 +61,35 @@ class AskResult:
     model: str
     coins_charged: int
     balance_after: int | None
+    tools_used: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _Admission:
+    language: str
+    persona: str | None
+    features: dict[str, bool]
+
+
+@dataclass(frozen=True)
+class _Completion:
+    text: str
+    model: str
+    prompt_tokens: int
+    completion_tokens: int
+    tools_used: tuple[str, ...]
+
+
+Work = Callable[[int, int | None], Awaitable[AskResult]]
 
 
 class AIOrchestrator:
-    """Alur: validasi -> fitur/opt-out -> cooldown -> kuota -> potong koin -> LLM -> simpan.
+    """Alur chat: validasi -> fitur/opt-out -> rule router -> cooldown -> kuota -> potong koin ->
+    LLM (dengan tool calling) -> simpan.
 
-    Bila langkah setelah pemotongan koin gagal, koin dikembalikan otomatis.
+    - Rule router (pertanyaan sederhana seperti "saldo saya") dijawab tanpa LLM dan tanpa koin.
+    - Tool calling berjalan dalam panggilan LLM yang sama (tanpa klasifikasi terpisah) agar hemat kuota.
+    - Bila langkah setelah pemotongan koin gagal, koin dikembalikan otomatis.
     """
 
     def __init__(
@@ -56,6 +100,7 @@ class AIOrchestrator:
         economy: EconomyService,
         settings: SettingsService,
         config: AIConfig,
+        tools: ToolRegistry | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._sf = session_factory
@@ -63,63 +108,153 @@ class AIOrchestrator:
         self._economy = economy
         self._settings = settings
         self._cfg = config
+        self._tools = tools
+        self._executor = ToolExecutor(tools) if tools is not None else None
         self._clock = clock
         self._last_call: dict[int, float] = {}
 
+    @property
+    def retention_days(self) -> int:
+        return self._cfg.retention_days
+
+    # ---------- Use case ----------
     async def ask(self, req: AskRequest) -> AskResult:
-        cfg = self._cfg
-        prompt = req.prompt.strip()
-        if not prompt:
-            raise ValidationFailed("Pertanyaan tidak boleh kosong.")
-        if len(prompt) > cfg.max_input_chars:
-            raise ValidationFailed(
-                f"Pertanyaan terlalu panjang (maksimal {cfg.max_input_chars} karakter)."
-            )
+        prompt = self._validate_text(req.prompt)
+        admission = await self._admit(req.server_id, req.user.id)
+        ctx = ToolContext(
+            server_id=req.server_id,
+            user=req.user,
+            is_admin=req.is_admin,
+            features=admission.features,
+        )
 
-        server_settings = await self._settings.get(req.server_id)
-        if not server_settings.features.get("ai"):
-            raise PermissionDenied(
-                "Modul AI belum aktif di server ini. Admin bisa menyalakannya dengan /setup feature."
-            )
-
-        language, opted_out = await self._load_profile(req.user.id)
-        if opted_out:
-            raise PermissionDenied("Kamu menonaktifkan fitur AI untuk akunmu.")
+        ruled = await self._try_rule(prompt, ctx)
+        if ruled is not None:
+            return ruled
 
         self._check_cooldown(req.user.id)
         await self._check_quota(req.user.id)
 
-        charged = 0
-        balance: int | None = None
-        if cfg.cost_coins > 0:
-            balance = await self._economy.charge(
-                req.server_id,
-                req.user.id,
-                cfg.cost_coins,
-                kind="ai_ask",
-                meta={"channel_id": req.channel_id},
-            )
-            charged = cfg.cost_coins
+        async def work(charged: int, balance: int | None) -> AskResult:
+            return await self._chat(req, prompt, admission, ctx, charged, balance)
 
-        try:
-            return await self._respond(
-                req, prompt, server_settings.ai_persona, language, charged, balance
+        return await self._billed(
+            req.server_id, req.user.id, "ai_ask", {"channel_id": req.channel_id}, work
+        )
+
+    async def translate(self, req: TranslateRequest) -> AskResult:
+        text = self._validate_text(req.text)
+        target = " ".join(req.target_language.split())[:30]
+        if len(target) < 2:
+            raise ValidationFailed("Bahasa tujuan tidak valid.")
+        await self._admit(req.server_id, req.user.id)
+        self._check_cooldown(req.user.id)
+        await self._check_quota(req.user.id)
+
+        async def work(charged: int, balance: int | None) -> AskResult:
+            response = await self._llm.chat(
+                build_translate_messages(text, target), max_tokens=self._cfg.max_output_tokens
             )
-        except (Exception, asyncio.CancelledError):
-            if charged:
-                await self._refund(req, charged)
-            raise
+            if not response.content:
+                raise ProviderUnavailable("respons terjemahan kosong", retryable=False)
+            async with session_scope(self._sf) as session:
+                await AIUsageRepository(session).add(
+                    server_id=req.server_id,
+                    user_id=req.user.id,
+                    model=response.model,
+                    prompt_tokens=response.prompt_tokens,
+                    completion_tokens=response.completion_tokens,
+                    coins=charged,
+                )
+            return AskResult(
+                text=response.content,
+                model=response.model,
+                coins_charged=charged,
+                balance_after=balance,
+            )
+
+        return await self._billed(
+            req.server_id, req.user.id, "ai_translate", {"target": target}, work
+        )
 
     async def forget(self, server_id: int, user_id: int) -> int:
         async with session_scope(self._sf) as session:
             return await ConversationRepository(session).delete_for_user(server_id, user_id)
 
-    async def _respond(
+    async def purge_expired(self, now: datetime | None = None) -> tuple[int, int]:
+        """Hapus riwayat melewati masa retensi. Return (pesan dihapus, percakapan dihapus)."""
+        cutoff = (now or datetime.now(UTC)) - timedelta(days=self._cfg.retention_days)
+        async with session_scope(self._sf) as session:
+            return await ConversationRepository(session).purge_older_than(cutoff)
+
+    # ---------- Tahapan ----------
+    def _validate_text(self, text: str) -> str:
+        cleaned = text.strip()
+        if not cleaned:
+            raise ValidationFailed("Teks tidak boleh kosong.")
+        if len(cleaned) > self._cfg.max_input_chars:
+            raise ValidationFailed(
+                f"Teks terlalu panjang (maksimal {self._cfg.max_input_chars} karakter)."
+            )
+        return cleaned
+
+    async def _admit(self, server_id: int, user_id: int) -> _Admission:
+        server_settings = await self._settings.get(server_id)
+        if not server_settings.features.get("ai"):
+            raise PermissionDenied(
+                "Modul AI belum aktif di server ini. Admin bisa menyalakannya dengan /setup feature."
+            )
+        language, opted_out = await self._load_profile(user_id)
+        if opted_out:
+            raise PermissionDenied("Kamu menonaktifkan fitur AI untuk akunmu.")
+        return _Admission(language, server_settings.ai_persona, server_settings.features)
+
+    async def _try_rule(self, prompt: str, ctx: ToolContext) -> AskResult | None:
+        if self._tools is None or self._executor is None:
+            return None
+        match = match_rule(prompt)
+        if match is None:
+            return None
+        tool = self._tools.get(match.tool)
+        if tool is None or self._tools.unavailable_reason(tool, ctx) is not None:
+            return None  # modul dimatikan / tidak berhak: biarkan LLM yang menanggapi
+        text = await self._executor.run_named(match.tool, json.dumps(match.args), ctx)
+        return AskResult(
+            text=text,
+            model=f"rule:{match.tool}",
+            coins_charged=0,
+            balance_after=None,
+            tools_used=(match.tool,),
+        )
+
+    async def _billed(
+        self,
+        server_id: int,
+        user_id: int,
+        kind: str,
+        meta: dict[str, object],
+        work: Work,
+    ) -> AskResult:
+        charged = 0
+        balance: int | None = None
+        if self._cfg.cost_coins > 0:
+            balance = await self._economy.charge(
+                server_id, user_id, self._cfg.cost_coins, kind=kind, meta=meta
+            )
+            charged = self._cfg.cost_coins
+        try:
+            return await work(charged, balance)
+        except (Exception, asyncio.CancelledError):
+            if charged:
+                await self._refund(server_id, user_id, charged)
+            raise
+
+    async def _chat(
         self,
         req: AskRequest,
         prompt: str,
-        persona: str | None,
-        language: str,
+        admission: _Admission,
+        ctx: ToolContext,
         charged: int,
         balance: int | None,
     ) -> AskResult:
@@ -133,47 +268,90 @@ class AIOrchestrator:
             for row in rows
         ]
 
+        specs = self._tools.specs_for(ctx) if self._tools is not None else []
         messages = build_messages(
-            persona_override=persona,
+            persona_override=admission.persona,
             server_name=req.server_name,
             user_name=req.user.username,
-            language=language,
+            language=admission.language,
             history=history,
             prompt=prompt,
             history_max_chars=cfg.history_max_chars,
+            tools_enabled=bool(specs),
         )
-        response = await self._llm.chat(messages, max_tokens=cfg.max_output_tokens)
+        completion = await self._complete(messages, specs, ctx)
 
         async with session_scope(self._sf) as session:
             await ConversationRepository(session).add_messages(
                 conversation_id,
                 [
-                    ("user", prompt, response.prompt_tokens),
-                    ("assistant", response.content, response.completion_tokens),
+                    ("user", prompt, completion.prompt_tokens),
+                    ("assistant", completion.text, completion.completion_tokens),
                 ],
             )
             await AIUsageRepository(session).add(
                 server_id=req.server_id,
                 user_id=req.user.id,
-                model=response.model,
-                prompt_tokens=response.prompt_tokens,
-                completion_tokens=response.completion_tokens,
+                model=completion.model,
+                prompt_tokens=completion.prompt_tokens,
+                completion_tokens=completion.completion_tokens,
                 coins=charged,
             )
         return AskResult(
-            text=response.content,
-            model=response.model,
+            text=completion.text,
+            model=completion.model,
             coins_charged=charged,
             balance_after=balance,
+            tools_used=completion.tools_used,
         )
 
-    async def _refund(self, req: AskRequest, amount: int) -> None:
+    async def _complete(
+        self, messages: list[ChatMessage], specs: list[ToolSpec], ctx: ToolContext
+    ) -> _Completion:
+        """Putaran LLM: bila model meminta tool, jalankan lalu kembalikan hasilnya (maks N putaran).
+        Putaran terakhir tanpa tool agar model wajib menjawab dengan teks."""
+        cfg = self._cfg
+        rounds = cfg.max_tool_rounds if specs and self._executor is not None else 0
+        conversation = list(messages)
+        prompt_tokens = completion_tokens = 0
+        used: list[str] = []
+
+        for attempt in range(rounds + 1):
+            offer = specs if attempt < rounds else None
+            response = await self._llm.chat(
+                conversation, tools=offer, max_tokens=cfg.max_output_tokens
+            )
+            prompt_tokens += response.prompt_tokens
+            completion_tokens += response.completion_tokens
+
+            if not response.tool_calls or offer is None:
+                if not response.content:
+                    raise ProviderUnavailable("model tidak memberi jawaban", retryable=False)
+                return _Completion(
+                    response.content, response.model, prompt_tokens, completion_tokens, tuple(used)
+                )
+
+            assert self._executor is not None
+            conversation.append(
+                ChatMessage("assistant", response.content, tool_calls=response.tool_calls)
+            )
+            for index, call in enumerate(response.tool_calls):
+                if index >= MAX_CALLS_PER_ROUND:
+                    result = "Dilewati: terlalu banyak tool call dalam satu putaran."
+                else:
+                    result = await self._executor.execute(call, ctx)
+                    used.append(call.name)
+                conversation.append(ChatMessage("tool", result, tool_call_id=call.id))
+
+        raise ProviderUnavailable("model tidak memberi jawaban", retryable=False)
+
+    async def _refund(self, server_id: int, user_id: int, amount: int) -> None:
         try:
             await self._economy.credit(
-                req.server_id, req.user.id, amount, kind="ai_refund", meta={"reason": "ai_failed"}
+                server_id, user_id, amount, kind="ai_refund", meta={"reason": "ai_failed"}
             )
         except Exception:
-            log.error("refund_failed", server_id=req.server_id, user_id=req.user.id, amount=amount)
+            log.error("refund_failed", server_id=server_id, user_id=user_id, amount=amount)
 
     async def _load_profile(self, user_id: int) -> tuple[str, bool]:
         async with session_scope(self._sf) as session:
