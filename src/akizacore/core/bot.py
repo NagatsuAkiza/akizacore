@@ -10,6 +10,7 @@ from akizacore.core.loader import load_cogs
 from akizacore.core.tree import AkizaTree
 from akizacore.database import build_engine, build_session_factory
 from akizacore.services.container import Services
+from akizacore.services.economy_config import EconomyConfig
 
 log = structlog.get_logger()
 
@@ -31,7 +32,7 @@ class AkizaBot(commands.Bot):
             build_session_factory(self.engine),
             llm=self.llm,
             ai_config=AIConfig.from_settings(settings),
-            starter_balance=settings.economy_starter_balance,
+            economy_config=EconomyConfig.from_settings(settings),
         )
 
     async def setup_hook(self) -> None:

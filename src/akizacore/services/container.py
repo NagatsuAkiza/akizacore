@@ -1,4 +1,7 @@
-from dataclasses import dataclass
+import random
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Self
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -7,6 +10,7 @@ from akizacore.ai.config import AIConfig
 from akizacore.ai.orchestrator import AIOrchestrator
 from akizacore.ai.providers.base import LLMProvider
 from akizacore.services.economy import EconomyService
+from akizacore.services.economy_config import EconomyConfig
 from akizacore.services.onboarding import OnboardingService
 from akizacore.services.settings import SettingsService
 
@@ -27,10 +31,16 @@ class Services:
         *,
         llm: LLMProvider | None = None,
         ai_config: AIConfig | None = None,
-        starter_balance: int = 100,
+        economy_config: EconomyConfig | None = None,
+        starter_balance: int | None = None,
+        clock: Callable[[], datetime] | None = None,
+        rng: random.Random | None = None,
     ) -> Self:
+        eco_cfg = economy_config or EconomyConfig()
+        if starter_balance is not None:
+            eco_cfg = replace(eco_cfg, starter_balance=starter_balance)
         settings = SettingsService(session_factory)
-        economy = EconomyService(session_factory, starter_balance=starter_balance)
+        economy = EconomyService(session_factory, config=eco_cfg, clock=clock, rng=rng)
         ai = (
             AIOrchestrator(
                 session_factory,
