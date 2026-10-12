@@ -36,8 +36,7 @@ def snowflake_at(moment: datetime) -> int:
 
 # Akun owner dan akun biasa sama-sama baru (1 hari) supaya batas umur akun relevan.
 OWNER = UserInfo(id=snowflake_at(NOW - timedelta(days=1)), username="owner")
-YOUNG = UserInfo(id=snowflake_at(
-    NOW - timedelta(days=1)) + 1, username="young")
+YOUNG = UserInfo(id=snowflake_at(NOW - timedelta(days=1)) + 1, username="young")
 # Akun lama (id kecil -> umur sangat tua), dipakai sebagai user biasa yang lolos batas umur.
 OLD = UserInfo(id=100, username="old")
 OTHER = UserInfo(id=200, username="other")
@@ -51,8 +50,7 @@ async def make(
     ai: dict[str, object] | None = None,
     enable_ai: bool = True,
 ) -> Services:
-    eco_values: dict[str, object] = {
-        "starter_balance": 100, "work_min": 20, "work_max": 20}
+    eco_values: dict[str, object] = {"starter_balance": 100, "work_min": 20, "work_max": 20}
     eco_values.update(economy or {})
     services = Services.build(
         session_factory,

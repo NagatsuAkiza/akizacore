@@ -1,6 +1,7 @@
 from akizacore.database.repositories.ai_usage import AIUsageRepository
 from akizacore.database.repositories.conversations import ConversationRepository
 from akizacore.database.repositories.economy import EconomyRepository
+from akizacore.database.repositories.moderation import ModerationRepository
 from akizacore.database.repositories.servers import ServerRepository
 from akizacore.database.repositories.settings import SettingsRepository
 from akizacore.database.repositories.shop import ShopRepository
@@ -13,5 +14,6 @@ __all__ = [
     "ServerRepository",
     "SettingsRepository",
     "ShopRepository",
+    "ModerationRepository",
     "UserRepository",
 ]

@@ -89,7 +89,12 @@ class ShopCog(commands.Cog):
         stock="Stok (kosongkan = tak terbatas)",
         description="Deskripsi singkat",
     )
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(
+        lambda interaction: (
+            interaction.client.is_owner_user(interaction.user.id)
+            or interaction.permissions.manage_guild
+        )
+    )
     async def shopadmin_add(
         self,
         interaction: discord.Interaction,
@@ -108,7 +113,12 @@ class ShopCog(commands.Cog):
 
     @shopadmin_group.command(name="remove", description="Hapus item dari toko")
     @app_commands.describe(name="Nama item")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @app_commands.check(
+        lambda interaction: (
+            interaction.client.is_owner_user(interaction.user.id)
+            or interaction.permissions.manage_guild
+        )
+    )
     async def shopadmin_remove(self, interaction: discord.Interaction, name: str) -> None:
         assert interaction.guild is not None
         await self.bot.services.shop.remove_item(interaction.guild.id, name)
