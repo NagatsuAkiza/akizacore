@@ -84,6 +84,14 @@ class EconomyRepository:
         )
         return -int((await self.session.execute(stmt)).scalar_one())
 
+    async def stats(self, server_id: int) -> tuple[int, int]:
+        """Return (jumlah akun, total koin beredar) untuk satu server."""
+        stmt = select(func.count(), func.coalesce(func.sum(EconomyAccount.balance), 0)).where(
+            EconomyAccount.server_id == server_id
+        )
+        row = (await self.session.execute(stmt)).one()
+        return int(row[0]), int(row[1])
+
     async def top(
         self, server_id: int, *, by_xp: bool, limit: int
     ) -> list[tuple[EconomyAccount, str]]:
