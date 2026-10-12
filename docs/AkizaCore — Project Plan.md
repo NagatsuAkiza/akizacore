@@ -1,6 +1,6 @@
 # AkizaCore — Project Plan
 
-*AI Discord Assistant multifungsi · Draft v1 · 12 Okt 2026 · Dev di laptop lokal, VPS menyusul*
+_AI Discord Assistant multifungsi · Draft v1 · 12 Okt 2026 · Dev di laptop lokal, VPS menyusul_
 
 ## 1. Project Overview
 
@@ -81,20 +81,20 @@ akizacore/
 
 | Tabel | PK | FK | Kolom penting |
 | --- | --- | --- | --- |
-| users | id (ID Discord) | - | username, avatar, created\_at |
-| servers | id (guild ID) | - | name, owner\_id, is\_active |
-| user\_profiles | user\_id | users.id | language, timezone, ai\_prefs, ai\_opt\_out |
-| settings | server\_id | servers.id | log\_channel\_id, welcome\_channel\_id, autorole\_id, ai\_persona, features (JSONB) |
-| commands | id | server\_id (null = default) | name, enabled, allowed\_roles, cooldown\_s |
-| conversations | id (UUID) | server\_id, user\_id | channel\_id, summary, last\_active\_at |
-| messages | id | conversation\_id | role, content, tokens |
-| memories | id | user\_id, server\_id | kind, content, embedding (pgvector), deleted\_at |
-| economy | (server\_id, user\_id) | servers.id, users.id | balance, xp, level, last\_daily |
-| transactions | id | server\_id, user\_id | amount (+/-), kind, balance\_after, meta (ledger append-only) |
-| shop\_items / inventory | id | server\_id, item\_id, user\_id | name, price, stock / quantity |
-| warnings | id | server\_id, user\_id, mod\_id | reason, active, created\_at |
-| moderation\_log | id | server\_id | target\_id, mod\_id, action, reason |
-| reminders | id | user\_id | channel\_id, message, remind\_at, status |
+| users | id (ID Discord) | - | username, avatar, created_at |
+| servers | id (guild ID) | - | name, owner_id, is_active |
+| user_profiles | user_id | users.id | language, timezone, ai_prefs, ai_opt_out |
+| settings | server_id | servers.id | log_channel_id, welcome_channel_id, autorole_id, ai_persona, features (JSONB) |
+| commands | id | server_id (null = default) | name, enabled, allowed_roles, cooldown_s |
+| conversations | id (UUID) | server_id, user_id | channel_id, summary, last_active_at |
+| messages | id | conversation_id | role, content, tokens |
+| memories | id | user_id, server_id | kind, content, embedding (pgvector), deleted_at |
+| economy | (server_id, user_id) | servers.id, users.id | balance, xp, level, last_daily |
+| transactions | id | server_id, user_id | amount (+/-), kind, balance_after, meta (ledger append-only) |
+| shop_items / inventory | id | server_id, item_id, user_id | name, price, stock / quantity |
+| warnings | id | server_id, user_id, mod_id | reason, active, created_at |
+| moderation_log | id | server_id | target_id, mod_id, action, reason |
+| reminders | id | user_id | channel_id, message, remind_at, status |
 
 **Catatan:** ekonomi per server (sesuai bot sekarang); index `(server_id, user_id)` di tabel multi-server; `reminders(remind_at)` untuk status pending; index HNSW untuk `memories.embedding`; data lama SQLite dimigrasi sekali lewat skrip.
 
@@ -115,14 +115,14 @@ Asumsi: satu developer, dev di laptop, ±1 fase per minggu di bulan pertama.
 
 **Stack:** React, Vite, TypeScript, Tailwind, React Router, TanStack Query; tipe API digenerate dari OpenAPI FastAPI. **Login:** Discord OAuth2; backend menukar code lalu membuat sesi cookie httpOnly. Daftar server hanya yang kamu punya izin Manage Server dan ada bot-nya.
 
-| Grup | Halaman |
-| --- | --- |
-| Auth | Login with Discord, callback |
-| Dashboard | Overview, Server list, Analytics (aktivitas, pemakaian AI) |
-| AI | Conversation history, Personality (editor + preview), Memory (lihat/hapus) |
-| Economy | User statistics, Currency management (adjust saldo tercatat di ledger), Shop |
-| Moderation | Logs, Warnings, Auto moderation settings |
-| Settings | Commands, Permission, Channel configuration |
+| Grup       | Halaman                                                                      |
+| ---------- | ---------------------------------------------------------------------------- |
+| Auth       | Login with Discord, callback                                                 |
+| Dashboard  | Overview, Server list, Analytics (aktivitas, pemakaian AI)                   |
+| AI         | Conversation history, Personality (editor + preview), Memory (lihat/hapus)   |
+| Economy    | User statistics, Currency management (adjust saldo tercatat di ledger), Shop |
+| Moderation | Logs, Warnings, Auto moderation settings                                     |
+| Settings   | Commands, Permission, Channel configuration                                  |
 
 ## 8. API Design (FastAPI)
 
@@ -192,16 +192,16 @@ Tambahan: healthcheck, restart policy `unless-stopped`, backup database terjadwa
 
 **Advanced (production):** dashboard lengkap, memory + semantic search, automod penuh, Redis, multi-agent orchestrator, analytics, monitoring (Sentry/Prometheus), sharding, tier premium.
 
-| Fitur | Impact | Kesulitan | Urutan |
-| --- | --- | --- | --- |
-| Struktur modular + service layer, PostgreSQL | Tinggi | Sedang | 1 (fondasi) |
-| AI chat + gating koin | Tinggi | Sedang | 2 |
-| Ledger ekonomi | Tinggi | Rendah | 2 |
-| Server settings + log, reminder | Sedang | Rendah | 3 (quick win) |
-| Automod | Sedang | Sedang | 4 |
-| Dashboard | Tinggi | Tinggi | 5 |
-| Memory semantik, multi-agent | Sedang | Tinggi | 6-7 |
-| Music, calendar | Rendah | Tinggi | Terakhir |
+| Fitur                                        | Impact | Kesulitan | Urutan        |
+| -------------------------------------------- | ------ | --------- | ------------- |
+| Struktur modular + service layer, PostgreSQL | Tinggi | Sedang    | 1 (fondasi)   |
+| AI chat + gating koin                        | Tinggi | Sedang    | 2             |
+| Ledger ekonomi                               | Tinggi | Rendah    | 2             |
+| Server settings + log, reminder              | Sedang | Rendah    | 3 (quick win) |
+| Automod                                      | Sedang | Sedang    | 4             |
+| Dashboard                                    | Tinggi | Tinggi    | 5             |
+| Memory semantik, multi-agent                 | Sedang | Tinggi    | 6-7           |
+| Music, calendar                              | Rendah | Tinggi    | Terakhir      |
 
 ## 13. AI Orchestrator Architecture
 
@@ -216,12 +216,12 @@ User Discord → Discord Gateway → Bot (cog) → AI Orchestrator
 
 **A. Intent Router.** Tiga tahap, dari yang paling murah: (1) slash/prefix command langsung ke handler tanpa AI; (2) aturan kata kunci/regex untuk intent umum; (3) klasifikasi LLM dengan output JSON `{intent, agent, confidence, args}` hanya bila tahap 1-2 gagal. Confidence rendah berarti tanya klarifikasi atau jatuh ke AI Agent. Bahasa natural hanya diproses bila bot di-mention atau di channel AI khusus (hemat kuota).
 
-| Pesan | Agent |
-| --- | --- |
-| berapa saldo saya? | Economy Agent |
-| ingatkan saya besok jam 8 | Utility Agent |
-| jelaskan konsep machine learning | AI Agent |
-| warn @user karena spam | Moderation Agent (izin + konfirmasi) |
+| Pesan                            | Agent                                |
+| -------------------------------- | ------------------------------------ |
+| berapa saldo saya?               | Economy Agent                        |
+| ingatkan saya besok jam 8        | Utility Agent                        |
+| jelaskan konsep machine learning | AI Agent                             |
+| warn @user karena spam           | Moderation Agent (izin + konfirmasi) |
 
 **B. Task Planner.** Aktif hanya untuk permintaan multi-langkah (ditandai router). Output rencana JSON `steps[{id, tool, args, depends_on}]`, maksimal 6 langkah, tiap langkah divalidasi (tool ada, user berhak). Langkah destruktif atau yang mengirim ke orang lain butuh konfirmasi tombol. Contoh: laporan server mingguan → (1) ambil data server → (2) analisis statistik → (3) generate laporan AI → (4) kirim ke admin.
 
@@ -288,10 +288,10 @@ Discord AI Assistant
 
 ## Risiko Utama
 
-| Risiko | Mitigasi |
-| --- | --- |
-| Kuota AI gratis cepat habis | Kuota global + koin + cooldown, multi-provider |
-| Scope terlalu besar untuk solo dev | Ikuti MVP; dashboard setelah bot stabil |
-| Abuse koin (akun alt) | Batas transfer, batas `/ask` per hari, syarat usia akun |
-| Privasi data percakapan | Retensi terbatas, `/forget`, pemberitahuan ke user |
-| Free tier dan fitur provider berubah | Interface `LLMProvider`, tidak terikat satu vendor |
+| Risiko                               | Mitigasi                                                |
+| ------------------------------------ | ------------------------------------------------------- |
+| Kuota AI gratis cepat habis          | Kuota global + koin + cooldown, multi-provider          |
+| Scope terlalu besar untuk solo dev   | Ikuti MVP; dashboard setelah bot stabil                 |
+| Abuse koin (akun alt)                | Batas transfer, batas `/ask` per hari, syarat usia akun |
+| Privasi data percakapan              | Retensi terbatas, `/forget`, pemberitahuan ke user      |
+| Free tier dan fitur provider berubah | Interface `LLMProvider`, tidak terikat satu vendor      |

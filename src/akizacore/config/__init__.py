@@ -1,3 +1,3 @@
-from akizacore.config.settings import Settings, get_settings
+from akizacore.config.settings import DatabaseSettings, Settings, get_settings
 
-__all__ = ["Settings", "get_settings"]
+__all__ = ["DatabaseSettings", "Settings", "get_settings"]
