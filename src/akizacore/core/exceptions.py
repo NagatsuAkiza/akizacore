@@ -9,6 +9,18 @@ class AkizaError(Exception):
         super().__init__(self.user_message)
 
 
+class ProviderUnavailable(AkizaError):
+    """Provider AI gagal / tidak tersedia. `detail` hanya untuk log, bukan untuk user."""
+
+    user_message = "AI sedang tidak tersedia, coba lagi nanti."
+    http_status = 503
+
+    def __init__(self, detail: str | None = None, *, retryable: bool = True) -> None:
+        super().__init__()
+        self.detail = detail
+        self.retryable = retryable
+
+
 class NotFound(AkizaError):
     user_message = "Data tidak ditemukan."
     http_status = 404
