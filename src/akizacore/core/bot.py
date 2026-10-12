@@ -1,11 +1,13 @@
 import discord
 import structlog
-from discord import app_commands
 from discord.ext import commands
+from sqlalchemy import text
 
 from akizacore.config import Settings
-from akizacore.core.exceptions import AkizaError
 from akizacore.core.loader import load_cogs
+from akizacore.core.tree import AkizaTree
+from akizacore.database import build_engine, build_session_factory
+from akizacore.services.container import Services
 
 log = structlog.get_logger()
 
@@ -13,18 +15,19 @@ log = structlog.get_logger()
 class AkizaBot(commands.Bot):
     def __init__(self, settings: Settings) -> None:
         intents = discord.Intents.default()
-        intents.message_content = (
-            True  # privileged: aktifkan di Developer Portal (untuk chat via mention)
-        )
+        intents.message_content = True  # privileged: aktifkan di Developer Portal
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
             allowed_mentions=discord.AllowedMentions.none(),
+            tree_cls=AkizaTree,
         )
         self.settings = settings
-        self.tree.on_error = self.on_tree_error  # type: ignore[method-assign]
+        self.engine = build_engine(settings.database_url)
+        self.services = Services.build(build_session_factory(self.engine))
 
     async def setup_hook(self) -> None:
+        await self._check_database()
         await load_cogs(self)
         if self.settings.dev_guild_id:
             guild = discord.Object(id=self.settings.dev_guild_id)
@@ -35,19 +38,18 @@ class AkizaBot(commands.Bot):
             await self.tree.sync()
             log.info("commands_synced", scope="global")
 
+    async def _check_database(self) -> None:
+        try:
+            async with self.engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+        except Exception:
+            log.error("database_unreachable", hint="jalankan: docker compose up -d")
+            raise
+        log.info("database_connected")
+
     async def on_ready(self) -> None:
         log.info("bot_ready", user=str(self.user), guilds=len(self.guilds))
 
-    async def on_tree_error(
-        self, interaction: discord.Interaction, error: app_commands.AppCommandError
-    ) -> None:
-        original = getattr(error, "original", error)
-        if isinstance(original, AkizaError):
-            message = original.user_message
-        else:
-            log.exception("command_error", command=getattr(interaction.command, "name", None))
-            message = "Terjadi kesalahan internal."
-        if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
-        else:
-            await interaction.response.send_message(message, ephemeral=True)
+    async def close(self) -> None:
+        await super().close()
+        await self.engine.dispose()
