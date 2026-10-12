@@ -30,6 +30,15 @@ class ModlogArgs(BaseModel):
     user_id: int | None = Field(None, gt=0, description="Filter ID member, opsional")
 
 
+class DestructiveModerationArgs(BaseModel):
+    action: Literal["kick", "ban", "timeout", "untimeout", "purge", "add_role", "remove_role"]
+    user_id: int | None = Field(None, gt=0, description="ID member target")
+    reason: str = Field("Tanpa alasan", min_length=1, max_length=300)
+    minutes: int | None = Field(None, ge=1, le=40320, description="Durasi timeout dalam menit")
+    amount: int | None = Field(None, ge=1, le=100, description="Jumlah pesan yang dihapus")
+    role_id: int | None = Field(None, gt=0, description="ID role yang dikelola")
+
+
 def build_default_registry(
     *, economy: EconomyService, shop: ShopService, stats: StatsService
 ) -> ToolRegistry:
@@ -89,6 +98,18 @@ def build_default_registry(
 
     async def show_modlog(ctx: ToolContext, args: ModlogArgs) -> str:
         return await (await moderation_gateway(ctx)).modlog(args.user_id)
+
+    async def request_destructive_moderation(
+        ctx: ToolContext, args: DestructiveModerationArgs
+    ) -> str:
+        return await (await moderation_gateway(ctx)).request_destructive(
+            action=args.action,
+            target_id=args.user_id,
+            reason=args.reason,
+            minutes=args.minutes,
+            amount=args.amount,
+            role_id=args.role_id,
+        )
 
     return ToolRegistry(
         [
@@ -153,6 +174,19 @@ def build_default_registry(
                 show_modlog,
                 permission="admin",
                 feature="moderation",
+            ),
+            Tool(
+                "moderation_request",
+                (
+                    "Ajukan kick, ban, timeout, untimeout, purge, atau add/remove role. "
+                    "Tool ini tidak langsung menjalankan aksi: user wajib mengonfirmasi "
+                    "token melalui /confirm."
+                ),
+                DestructiveModerationArgs,
+                request_destructive_moderation,
+                permission="admin",
+                feature="moderation",
+                side_effect="write",
             ),
         ]
     )

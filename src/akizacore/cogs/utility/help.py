@@ -28,6 +28,7 @@ FEATURE_LABELS = {
     "untimeout": "Moderation",
     "purge": "Moderation",
     "modlog": "Moderation",
+    "confirm": "Moderation",
     "automod": "Moderation",
     "setup": "Server Settings",
     "persona": "Server Settings",

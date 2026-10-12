@@ -63,6 +63,13 @@ Bot juga dapat merespons ketika di-mention langsung di channel.
 - `/react` — mengirim reaction emoji.
 - `/poll` — membuat poll interaktif dengan tombol voting.
 
+### AI moderation
+
+AI dapat mengusulkan kick, ban, timeout/untimeout, purge, dan add/remove role melalui
+`moderation_request`. Aksi destruktif tidak langsung dijalankan: admin yang membuat
+permintaan harus menjalankan `/confirm` dengan token yang diberikan AI dalam 120 detik.
+Token terikat pada server dan admin pembuatnya, serta hanya dapat digunakan sekali.
+
 ### Server Settings
 
 - `/setup view` — melihat konfigurasi server.

@@ -1,3 +1,8 @@
+import secrets
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import cast
 
 import discord
@@ -15,6 +20,54 @@ from akizacore.utils.converters import to_guild_info, to_user_info
 from akizacore.utils.text import chunk_text
 
 log = structlog.get_logger()
+CONFIRMATION_TTL_S = 120.0
+
+
+@dataclass
+class _PendingConfirmation:
+    guild_id: int
+    actor_id: int
+    action: str
+    created_at: float
+    callback: Callable[[], Awaitable[str]]
+
+
+class _ConfirmationManager:
+    def __init__(self) -> None:
+        self._pending: dict[str, _PendingConfirmation] = {}
+
+    def create(
+        self,
+        *,
+        guild_id: int,
+        actor_id: int,
+        action: str,
+        callback: Callable[[], Awaitable[str]],
+    ) -> str:
+        self._purge_expired()
+        token = secrets.token_urlsafe(9)
+        self._pending[token] = _PendingConfirmation(
+            guild_id, actor_id, action, time.monotonic(), callback
+        )
+        return token
+
+    async def consume(self, *, token: str, guild_id: int, actor_id: int) -> str:
+        self._purge_expired()
+        pending = self._pending.get(token)
+        if pending is None:
+            raise AkizaError("Token konfirmasi tidak valid atau sudah kedaluwarsa.")
+        if pending.guild_id != guild_id or pending.actor_id != actor_id:
+            raise AkizaError("Token konfirmasi bukan milik kamu atau server ini.")
+        self._pending.pop(token)
+        return await pending.callback()
+
+    def _purge_expired(self) -> None:
+        now = time.monotonic()
+        self._pending = {
+            token: item
+            for token, item in self._pending.items()
+            if now - item.created_at < CONFIRMATION_TTL_S
+        }
 
 
 def _is_admin(user: discord.User | discord.Member) -> bool:
@@ -29,10 +82,14 @@ class _DiscordModerationGateway(ModerationGateway):
         guild: discord.Guild,
         actor: discord.User | discord.Member,
         service: ModerationService,
+        confirmations: _ConfirmationManager,
+        channel: discord.abc.Messageable,
     ) -> None:
         self.guild = guild
         self.actor = actor
         self.service = service
+        self.confirmations = confirmations
+        self.channel = channel
 
     async def _member(self, user_id: int) -> discord.Member:
         member = self.guild.get_member(user_id)
@@ -96,12 +153,100 @@ class _DiscordModerationGateway(ModerationGateway):
             for entry in entries
         )
 
+    async def request_destructive(
+        self,
+        *,
+        action: str,
+        target_id: int | None,
+        reason: str,
+        minutes: int | None = None,
+        amount: int | None = None,
+        role_id: int | None = None,
+    ) -> str:
+        if action in {"kick", "ban", "timeout", "untimeout", "add_role", "remove_role"}:
+            if target_id is None:
+                raise AkizaError("Aksi ini membutuhkan user_id target.")
+            member = await self._member(target_id)
+        else:
+            member = None
+        if action == "timeout" and minutes is None:
+            raise AkizaError("Timeout membutuhkan minutes.")
+        if action == "purge" and amount is None:
+            raise AkizaError("Purge membutuhkan amount.")
+        if action in {"add_role", "remove_role"} and role_id is None:
+            raise AkizaError("Manajemen role membutuhkan role_id.")
+
+        async def execute() -> str:
+            if action == "purge":
+                if not isinstance(self.channel, discord.TextChannel | discord.Thread):
+                    raise AkizaError("Channel ini tidak mendukung purge.")
+                try:
+                    deleted = await self.channel.purge(limit=amount or 1)
+                except discord.Forbidden as exc:
+                    raise AkizaError(
+                        "Bot butuh izin Manage Messages dan Read Message History."
+                    ) from exc
+                except discord.HTTPException as exc:
+                    raise AkizaError("Discord gagal menghapus pesan saat ini.") from exc
+                await self.service.log_action(
+                    server_id=self.guild.id,
+                    target_id=self.actor.id,
+                    mod_id=self.actor.id,
+                    action=f"ai_purge:{len(deleted)}",
+                    reason=f"#{self.channel.name}: {reason}",
+                )
+                return f"{len(deleted)} pesan dihapus."
+
+            assert member is not None
+            target = await self._member(member.id)
+            try:
+                if action == "kick":
+                    await target.kick(reason=reason)
+                elif action == "ban":
+                    await target.ban(reason=reason, delete_message_days=0)
+                elif action in {"timeout", "untimeout"}:
+                    await target.timeout(
+                        None if action == "untimeout" else timedelta(minutes=minutes or 1),
+                        reason=reason,
+                    )
+                else:
+                    role = self.guild.get_role(role_id or 0)
+                    if role is None:
+                        raise AkizaError("Role tidak ditemukan di server ini.")
+                    if self.guild.me is not None and role >= self.guild.me.top_role:
+                        raise AkizaError("Role target lebih tinggi dari role bot.")
+                    if action == "add_role":
+                        await target.add_roles(role, reason=reason)
+                    else:
+                        await target.remove_roles(role, reason=reason)
+            except discord.Forbidden as exc:
+                raise AkizaError("Bot tidak punya izin atau hierarchy tidak mencukupi.") from exc
+            except discord.HTTPException as exc:
+                raise AkizaError("Discord gagal menjalankan aksi moderasi saat ini.") from exc
+            await self.service.log_action(
+                server_id=self.guild.id,
+                target_id=target.id,
+                mod_id=self.actor.id,
+                action=f"ai_{action}",
+                reason=reason,
+            )
+            return f"Aksi {action} berhasil untuk {target.display_name}."
+
+        token = self.confirmations.create(
+            guild_id=self.guild.id,
+            actor_id=self.actor.id,
+            action=action,
+            callback=execute,
+        )
+        return f"Konfirmasi diperlukan untuk {action}. Jalankan `/confirm token:{token}` dalam 120 detik."
+
 
 class ChatCog(commands.Cog):
     """/ask, /translate, chat lewat mention, dan /forget. Lapisan tipis di atas AIOrchestrator."""
 
     def __init__(self, bot: AkizaBot) -> None:
         self.bot = bot
+        self._confirmations = _ConfirmationManager()
 
     def _require_ai(self) -> AIOrchestrator:
         ai = self.bot.services.ai
@@ -141,10 +286,28 @@ class ChatCog(commands.Cog):
                     guild=guild,
                     actor=user,
                     service=self.bot.services.moderation,
+                    confirmations=self._confirmations,
+                    channel=cast(discord.abc.Messageable, guild.get_channel(channel_id)),
                 ),
             )
         )
         return self._format(result)
+
+    @app_commands.command(name="confirm", description="Konfirmasi aksi moderasi AI yang tertunda")
+    @app_commands.describe(token="Token dari permintaan moderasi AI")
+    @app_commands.guild_only()
+    async def confirm(
+        self, interaction: discord.Interaction, token: app_commands.Range[str, 1, 40]
+    ) -> None:
+        assert interaction.guild is not None
+        result = await self._confirmations.consume(
+            token=token,
+            guild_id=interaction.guild.id,
+            actor_id=interaction.user.id,
+        )
+        await interaction.response.send_message(
+            result, allowed_mentions=discord.AllowedMentions.none()
+        )
 
     @staticmethod
     async def _get_reply_context(message: discord.Message) -> ReplyContext | None:

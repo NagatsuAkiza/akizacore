@@ -45,6 +45,17 @@ class ModerationGateway(Protocol):
 
     async def modlog(self, target_id: int | None) -> str: ...
 
+    async def request_destructive(
+        self,
+        *,
+        action: str,
+        target_id: int | None,
+        reason: str,
+        minutes: int | None = None,
+        amount: int | None = None,
+        role_id: int | None = None,
+    ) -> str: ...
+
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[str]]
 
