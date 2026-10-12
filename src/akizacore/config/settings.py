@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     quota_utc_offset_hours: int = 7  # reset kuota harian tengah malam WIB
 
     economy_starter_balance: int = 100
+    economy_daily_amount: int = 50
+    economy_daily_xp: int = 20
+    economy_work_min: int = 15
+    economy_work_max: int = 45
+    economy_work_cooldown_s: int = 3600
+    economy_work_xp: int = 10
+    economy_transfer_daily_limit: int = 500
+    economy_transfer_min_account_age_days: int = 7
+    economy_message_xp_min: int = 5
+    economy_message_xp_max: int = 15
+    economy_message_xp_cooldown_s: float = 60.0
 
 
 @lru_cache
