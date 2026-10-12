@@ -3,6 +3,8 @@ import structlog
 from discord.ext import commands
 from sqlalchemy import text
 
+from akizacore.ai.config import AIConfig
+from akizacore.ai.providers import build_llm
 from akizacore.config import Settings
 from akizacore.core.loader import load_cogs
 from akizacore.core.tree import AkizaTree
@@ -24,10 +26,17 @@ class AkizaBot(commands.Bot):
         )
         self.settings = settings
         self.engine = build_engine(settings.database_url)
-        self.services = Services.build(build_session_factory(self.engine))
+        self.llm = build_llm(settings)
+        self.services = Services.build(
+            build_session_factory(self.engine),
+            llm=self.llm,
+            ai_config=AIConfig.from_settings(settings),
+            starter_balance=settings.economy_starter_balance,
+        )
 
     async def setup_hook(self) -> None:
         await self._check_database()
+        log.info("ai_provider", enabled=self.llm is not None)
         await load_cogs(self)
         if self.settings.dev_guild_id:
             guild = discord.Object(id=self.settings.dev_guild_id)
@@ -52,4 +61,6 @@ class AkizaBot(commands.Bot):
 
     async def close(self) -> None:
         await super().close()
+        if self.llm is not None:
+            await self.llm.aclose()
         await self.engine.dispose()
