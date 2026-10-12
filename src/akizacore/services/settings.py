@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from akizacore.core.exceptions import NotFound, ValidationFailed
+from akizacore.core.exceptions import NotFound, PermissionDenied, ValidationFailed
 from akizacore.database.repositories import SettingsRepository
 from akizacore.database.session import session_scope
 from akizacore.schemas.settings import FEATURES, SettingsRead, SettingsUpdate
@@ -26,6 +26,15 @@ class SettingsService:
             if row is None:
                 raise NotFound(_NOT_REGISTERED)
             return SettingsRead.model_validate(row)
+
+    async def require_feature(self, server_id: int, feature: str) -> None:
+        """Raise PermissionDenied bila modul dimatikan di server ini."""
+        data = await self.get(server_id)
+        if not data.features.get(feature):
+            raise PermissionDenied(
+                f"Modul {feature} dimatikan di server ini. "
+                "Admin bisa menyalakannya dengan /setup feature."
+            )
 
     async def set_feature(self, server_id: int, feature: str, enabled: bool) -> SettingsRead:
         if feature not in FEATURES:
