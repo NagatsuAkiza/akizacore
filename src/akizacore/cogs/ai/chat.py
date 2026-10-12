@@ -5,7 +5,7 @@ import structlog
 from discord import app_commands
 from discord.ext import commands
 
-from akizacore.ai.orchestrator import AIOrchestrator, AskRequest
+from akizacore.ai.orchestrator import AIOrchestrator, AskRequest, AskResult, TranslateRequest
 from akizacore.core.bot import AkizaBot
 from akizacore.core.exceptions import AkizaError
 from akizacore.utils.converters import to_guild_info, to_user_info
@@ -14,8 +14,13 @@ from akizacore.utils.text import chunk_text
 log = structlog.get_logger()
 
 
+def _is_admin(user: discord.User | discord.Member) -> bool:
+    """Snapshot izin Manage Server; menentukan apakah tool khusus admin boleh dipakai."""
+    return isinstance(user, discord.Member) and user.guild_permissions.manage_guild
+
+
 class ChatCog(commands.Cog):
-    """/ask, chat lewat mention, dan /forget. Lapisan tipis di atas AIOrchestrator."""
+    """/ask, /translate, chat lewat mention, dan /forget. Lapisan tipis di atas AIOrchestrator."""
 
     def __init__(self, bot: AkizaBot) -> None:
         self.bot = bot
@@ -26,6 +31,16 @@ class ChatCog(commands.Cog):
             raise AkizaError("Fitur AI belum dikonfigurasi oleh pemilik bot.")
         return ai
 
+    @staticmethod
+    def _format(result: AskResult) -> list[str]:
+        chunks = chunk_text(result.text) or ["(tidak ada jawaban)"]
+        if result.coins_charged > 0:
+            footer = f"-# {result.coins_charged} koin terpakai"
+            if result.balance_after is not None:
+                footer += f" \u00b7 saldo {result.balance_after}"
+            chunks[-1] = f"{chunks[-1]}\n{footer}"
+        return chunks
+
     async def _ask(
         self,
         *,
@@ -34,23 +49,17 @@ class ChatCog(commands.Cog):
         user: discord.User | discord.Member,
         prompt: str,
     ) -> list[str]:
-        ai = self._require_ai()
-        result = await ai.ask(
+        result = await self._require_ai().ask(
             AskRequest(
                 server_id=guild.id,
                 server_name=guild.name,
                 channel_id=channel_id,
                 user=to_user_info(user),
                 prompt=prompt,
+                is_admin=_is_admin(user),
             )
         )
-        chunks = chunk_text(result.text) or ["(tidak ada jawaban)"]
-        if result.coins_charged > 0:
-            footer = f"-# {result.coins_charged} koin terpakai"
-            if result.balance_after is not None:
-                footer += f" \u00b7 saldo {result.balance_after}"
-            chunks[-1] = f"{chunks[-1]}\n{footer}"
-        return chunks
+        return self._format(result)
 
     @app_commands.command(name="ask", description="Tanya apa saja ke AI")
     @app_commands.describe(prompt="Pertanyaan atau permintaanmu")
@@ -69,13 +78,40 @@ class ChatCog(commands.Cog):
         for chunk in chunks:
             await interaction.followup.send(chunk)
 
+    @app_commands.command(name="translate", description="Terjemahkan teks dengan AI")
+    @app_commands.describe(
+        text="Teks yang diterjemahkan", target="Bahasa tujuan, mis. Inggris, Jepang, Sunda"
+    )
+    @app_commands.guild_only()
+    async def translate(
+        self,
+        interaction: discord.Interaction,
+        text: app_commands.Range[str, 1, 1500],
+        target: app_commands.Range[str, 2, 30],
+    ) -> None:
+        assert interaction.guild is not None
+        await interaction.response.defer(thinking=True)
+        result = await self._require_ai().translate(
+            TranslateRequest(
+                server_id=interaction.guild.id,
+                user=to_user_info(interaction.user),
+                text=text,
+                target_language=target,
+            )
+        )
+        for chunk in self._format(result):
+            await interaction.followup.send(chunk)
+
     @app_commands.command(name="forget", description="Hapus riwayat percakapan AI-mu di server ini")
     @app_commands.guild_only()
     async def forget(self, interaction: discord.Interaction) -> None:
         assert interaction.guild is not None
-        count = await self._require_ai().forget(interaction.guild.id, interaction.user.id)
+        ai = self._require_ai()
+        count = await ai.forget(interaction.guild.id, interaction.user.id)
         await interaction.response.send_message(
-            f"Riwayat percakapanmu dihapus ({count} percakapan).", ephemeral=True
+            f"Riwayat percakapanmu dihapus ({count} percakapan). "
+            f"Riwayat lainnya otomatis dihapus setelah {ai.retention_days} hari.",
+            ephemeral=True,
         )
 
     @commands.Cog.listener()
