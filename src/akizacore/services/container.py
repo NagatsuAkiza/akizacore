@@ -13,6 +13,7 @@ from akizacore.services.economy import EconomyService
 from akizacore.services.economy_config import EconomyConfig
 from akizacore.services.onboarding import OnboardingService
 from akizacore.services.settings import SettingsService
+from akizacore.services.shop import ShopService
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class Services:
     onboarding: OnboardingService
     settings: SettingsService
     economy: EconomyService
+    shop: ShopService
     ai: AIOrchestrator | None  # None bila provider AI belum dikonfigurasi
 
     @classmethod
@@ -56,5 +58,6 @@ class Services:
             onboarding=OnboardingService(session_factory),
             settings=settings,
             economy=economy,
+            shop=ShopService(session_factory, economy=economy),
             ai=ai,
         )
