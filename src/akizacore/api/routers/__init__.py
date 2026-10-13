@@ -1,3 +1,3 @@
-from akizacore.api.routers import auth, health
+from akizacore.api.routers import auth, health, servers
 
-__all__ = ["auth", "health"]
+__all__ = ["auth", "health", "servers"]

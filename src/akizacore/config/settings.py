@@ -37,6 +37,7 @@ class ApiSettings(BaseSettings):
     session_ttl_s: int = 7 * 86400
     session_cookie_name: str = "akiza_session"
     dashboard_url: str = "http://localhost:5173"
+    guild_cache_ttl_s: int = 60
 
     @field_validator("dashboard_origins")
     @classmethod

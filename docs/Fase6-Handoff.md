@@ -31,7 +31,7 @@ Python minimum `>=3.12`. Quality gate: ruff, mypy (strict untuk `services/` dan 
   - **6a Backend API** (FastAPI, tanpa UI):
     - [x] 6a-1 Skeleton: app factory, format error seragam, health check, CORS, `ApiSettings` (patch `api-skeleton`)
     - [x] 6a-2 Login Discord OAuth2 + sesi: tabel `sessions` (migrasi `0007_user_sessions`), `AuthService`, endpoint `/auth/discord/login`, `/auth/discord/callback`, `/auth/logout`, `/auth/me`, cookie httpOnly, validasi state CSRF, `global_name` di `User` dan `UserInfo`, `Unauthorized` exception, 14 test baru
-    - [ ] 6a-3 Daftar server yang dikelola user (Manage Server + bot aktif), izin dicek ulang tiap request
+    - [x] 6a-3 Daftar server yang dikelola user: endpoint `GET /servers` & `GET /servers/{id}`, izin Manage Server/Admin dicek ulang tiap request, cache guild di sesi database dengan TTL, `ManagedServerDep`, cross-reference `bot_active` dengan DB, 10 test baru
     - [ ] 6a-4 `GET/PUT /servers/{id}/settings` memakai `SettingsService`
     - [ ] 6a-5 Endpoint baca: stats, leaderboard, modlog, warnings (paginasi `?page=&limit=`)
     - [ ] 6a-6 Test API lintas-server (401/403, akses server lain)

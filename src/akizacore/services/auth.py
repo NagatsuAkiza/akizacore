@@ -1,5 +1,6 @@
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -44,6 +45,12 @@ class AuthService:
             return sess
 
     async def get_user_by_session(self, session_id: str) -> User | None:
+        res = await self.get_session_and_user(session_id)
+        if res is None:
+            return None
+        return res[1]
+
+    async def get_session_and_user(self, session_id: str) -> tuple[UserSession, User] | None:
         async with session_scope(self._sf) as session:
             repo = SessionRepository(session)
             res = await repo.get_with_user(session_id)
@@ -53,7 +60,11 @@ class AuthService:
             if sess.expires_at <= datetime.now(UTC):
                 return None
             await repo.update_last_seen(session_id)
-            return user
+            return sess, user
+
+    async def update_cached_guilds(self, session_id: str, guilds: list[dict[str, Any]]) -> None:
+        async with session_scope(self._sf) as session:
+            await SessionRepository(session).update_cached_guilds(session_id, guilds)
 
     async def revoke_session(self, session_id: str) -> bool:
         async with session_scope(self._sf) as session:

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from akizacore.database.repositories import ServerRepository, SettingsRepository, UserRepository
 from akizacore.database.session import session_scope
+from akizacore.models import Server
 from akizacore.schemas.discord import GuildInfo, UserInfo
 from akizacore.schemas.settings import DEFAULT_FEATURES
 
@@ -26,6 +27,14 @@ class OnboardingService:
     async def deactivate_guild(self, guild_id: int) -> None:
         async with session_scope(self._sf) as session:
             await ServerRepository(session).deactivate(guild_id)
+
+    async def get_active_server_ids(self, server_ids: list[int] | None = None) -> set[int]:
+        async with session_scope(self._sf) as session:
+            return await ServerRepository(session).get_active_ids(server_ids)
+
+    async def get_server(self, server_id: int) -> Server | None:
+        async with session_scope(self._sf) as session:
+            return await ServerRepository(session).get(server_id)
 
     async def ensure_user(self, user: UserInfo) -> None:
         async with session_scope(self._sf) as session:

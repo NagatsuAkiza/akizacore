@@ -1,0 +1,410 @@
+from typing import Any
+
+import httpx
+import pytest
+from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from akizacore.api.app import API_PREFIX, create_app
+from akizacore.config import ApiSettings
+from akizacore.schemas.discord import GuildInfo, UserInfo
+from akizacore.services.container import Services
+
+
+def make_settings(**kwargs: Any) -> ApiSettings:
+    defaults: dict[str, Any] = {
+        "discord_client_id": "123456789",
+        "discord_client_secret": SecretStr("client_secret_xyz"),
+        "discord_oauth_redirect_uri": "http://localhost:8000/api/v1/auth/discord/callback",
+        "dashboard_url": "http://localhost:5173",
+        "guild_cache_ttl_s": 60,
+    }
+    defaults.update(kwargs)
+    return ApiSettings(**defaults)
+
+
+def client_for(app: Any, cookies: dict[str, str] | None = None) -> httpx.AsyncClient:
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    return httpx.AsyncClient(transport=transport, base_url="http://test", cookies=cookies)
+
+
+@pytest.fixture
+def api_services(session_factory: async_sessionmaker[AsyncSession]) -> Services:
+    return Services.build(session_factory)
+
+
+# ---------- GET /servers ----------
+
+
+async def test_servers_unauthenticated_returns_401(api_services: Services) -> None:
+    app = create_app(settings=make_settings(), services=api_services)
+    async with client_for(app) as client:
+        response = await client.get(f"{API_PREFIX}/servers")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+async def test_servers_with_expired_session_returns_401(api_services: Services) -> None:
+    user_id = 12345
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="test_user"))
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_expired",
+        ttl_s=-10,  # kedaluwarsa
+    )
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+async def test_servers_list_filters_manageable_and_sets_bot_active(
+    api_services: Services,
+) -> None:
+    user_id = 999111
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="admin_user"))
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_guilds",
+        ttl_s=3600,
+    )
+
+    # 1. Siapkan server di DB:
+    # Guild 101: aktif
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=101, name="Owner Server", owner_id=user_id)
+    )
+    # Guild 102: dinonaktifkan
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=102, name="Admin Server", owner_id=8888)
+    )
+    await api_services.onboarding.deactivate_guild(102)
+    # Guild 103: belum ada bot (tidak terdaftar di DB)
+
+    discord_guilds = [
+        {
+            "id": "101",
+            "name": "Owner Server",
+            "icon": "icon_101",
+            "owner": True,
+            "permissions": "0",
+        },
+        {
+            "id": "102",
+            "name": "Admin Server",
+            "icon": "icon_102",
+            "owner": False,
+            "permissions": "8",  # ADMINISTRATOR
+        },
+        {
+            "id": "103",
+            "name": "Manager Server",
+            "icon": None,
+            "owner": False,
+            "permissions": "32",  # MANAGE_GUILD
+        },
+        {
+            "id": "104",
+            "name": "Member Server",
+            "icon": "icon_104",
+            "owner": False,
+            "permissions": "1",  # CREATE_INSTANT_INVITE (bukan admin/manage)
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            assert request.headers["authorization"] == "Bearer tok_guilds"
+            return httpx.Response(200, json=discord_guilds)
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Hanya 101, 102, 103 yang muncul (104 tidak punya izin kelola)
+    assert len(data) == 3
+    server_map = {s["id"]: s for s in data}
+
+    assert "101" in server_map
+    assert server_map["101"]["name"] == "Owner Server"
+    assert server_map["101"]["icon"] == "icon_101"
+    assert server_map["101"]["owner"] is True
+    assert server_map["101"]["bot_active"] is True
+
+    assert "102" in server_map
+    assert server_map["102"]["name"] == "Admin Server"
+    assert server_map["102"]["owner"] is False
+    assert server_map["102"]["bot_active"] is False  # Bot nonaktif di DB
+
+    assert "103" in server_map
+    assert server_map["103"]["name"] == "Manager Server"
+    assert server_map["103"]["owner"] is False
+    assert server_map["103"]["bot_active"] is False  # Bot belum join server ini
+
+
+async def test_servers_caching_avoids_repeated_discord_calls(
+    api_services: Services,
+) -> None:
+    user_id = 999222
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="cache_user"))
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_cache",
+        ttl_s=3600,
+    )
+
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        if request.url.path == "/api/v10/users/@me/guilds":
+            call_count += 1
+            return httpx.Response(
+                200,
+                json=[{"id": "201", "name": "Cached Server", "owner": True, "permissions": "0"}],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings(guild_cache_ttl_s=60)
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        # Panggilan pertama: fetch ke Discord
+        res1 = await client.get(f"{API_PREFIX}/servers")
+        assert res1.status_code == 200
+        assert call_count == 1
+
+        # Panggilan kedua: harus menggunakan cache dari sesi
+        res2 = await client.get(f"{API_PREFIX}/servers")
+        assert res2.status_code == 200
+        assert call_count == 1  # Tidak bertambah!
+
+
+# ---------- GET /servers/{server_id} ----------
+
+
+async def test_server_detail_success(api_services: Services) -> None:
+    user_id = 999333
+    server_id = 301
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="detail_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Active Guild", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_detail",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Active Guild",
+                        "icon": "icon_301",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(server_id)
+    assert data["name"] == "Active Guild"
+    assert data["icon"] == "icon_301"
+    assert data["owner"] is True
+    assert data["bot_active"] is True
+
+
+async def test_server_detail_unmanageable_returns_403(api_services: Services) -> None:
+    user_id = 999444
+    server_id = 401
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="member_only"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="No Perms Guild", owner_id=123)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_no_perms",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "No Perms Guild",
+                        "icon": None,
+                        "owner": False,
+                        "permissions": "0",  # Tidak ada izin
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}")
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden"
+
+
+async def test_server_detail_not_in_user_guilds_returns_403(api_services: Services) -> None:
+    user_id = 999555
+    server_id = 501
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="foreign_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Other Guild", owner_id=111)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_foreign",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            # User sama sekali bukan member di server 501
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}")
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden"
+
+
+async def test_server_detail_inactive_bot_returns_404(api_services: Services) -> None:
+    user_id = 999666
+    server_id = 601
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="inactive_owner"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Inactive Guild", owner_id=user_id)
+    )
+    await api_services.onboarding.deactivate_guild(server_id)
+
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_inactive",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Inactive Guild",
+                        "icon": None,
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
+
+
+async def test_servers_discord_token_expired_returns_401(api_services: Services) -> None:
+    user_id = 999777
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="expired_tok_user"))
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="bad_discord_tok",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(401, json={"message": "401: Unauthorized"})
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers")
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "unauthorized"
+
+
+async def test_servers_discord_rate_limited_uses_cache(api_services: Services) -> None:
+    user_id = 999888
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="ratelimit_user"))
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="rl_tok",
+        ttl_s=3600,
+    )
+    # Pre-populate session cache
+    cached = [{"id": "801", "name": "Cached Server", "owner": True, "permissions": "0"}]
+    await api_services.auth.update_cached_guilds(session.id, cached)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(429, json={"message": "You are being rate limited."})
+        return httpx.Response(404)
+
+    # Set cache TTL ke 0 agar memicu fetch baru ke Discord
+    settings = make_settings(guild_cache_ttl_s=0)
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers")
+
+    # Harus fallback ke cached_guilds dengan sukses (200)
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == "801"

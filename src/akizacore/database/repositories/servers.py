@@ -1,4 +1,4 @@
-from sqlalchemy import func, or_, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,3 +35,12 @@ class ServerRepository:
         await self.session.execute(
             update(Server).where(Server.id == server_id).values(is_active=False)
         )
+
+    async def get_active_ids(self, server_ids: list[int] | None = None) -> set[int]:
+        stmt = select(Server.id).where(Server.is_active.is_(True))
+        if server_ids is not None:
+            if not server_ids:
+                return set()
+            stmt = stmt.where(Server.id.in_(server_ids))
+        res = await self.session.execute(stmt)
+        return set(res.scalars().all())
