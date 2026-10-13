@@ -110,6 +110,30 @@ class EconomyService:
                 for account, name in rows
             ]
 
+    async def paginated_leaderboard(
+        self, server_id: int, *, by: str = "balance", page: int = 1, limit: int = 20
+    ) -> tuple[list[LeaderboardEntry], int]:
+        if by not in ("balance", "xp"):
+            raise ValidationFailed("Urutan leaderboard harus 'balance' atau 'xp'.")
+        limit = max(1, min(limit, 100))
+        page = max(1, page)
+        offset = (page - 1) * limit
+        async with session_scope(self._sf) as session:
+            repo = EconomyRepository(session)
+            total = await repo.count_accounts(server_id)
+            rows = await repo.top(server_id, by_xp=by == "xp", limit=limit, offset=offset)
+            items = [
+                LeaderboardEntry(
+                    user_id=account.user_id,
+                    username=name,
+                    balance=account.balance,
+                    xp=account.xp,
+                    level=account.level,
+                )
+                for account, name in rows
+            ]
+            return items, total
+
     # ---------- Ubah saldo dasar ----------
     async def charge(
         self,

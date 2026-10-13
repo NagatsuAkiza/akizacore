@@ -1,7 +1,9 @@
-from typing import Any
+import math
+from datetime import datetime
+from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, field_validator
 
 from akizacore.api.deps import (
@@ -17,6 +19,57 @@ from akizacore.schemas.settings import SettingsUpdate
 
 log = structlog.get_logger()
 router = APIRouter(prefix="/servers", tags=["servers"])
+
+
+class PaginatedResponse[T](BaseModel):
+    items: list[T]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
+
+class ServerStatsResponse(BaseModel):
+    member_count: int
+    total_messages: int
+    ai_queries_today: int
+    economy_transactions_today: int
+    active_warnings: int
+    mod_actions_today: int
+    economy_accounts: int
+    coins_in_circulation: int
+    ai_requests_today: int
+    ai_requests_7d: int
+
+
+class LeaderboardEntryResponse(BaseModel):
+    user_id: str
+    username: str
+    balance: int
+    level: int
+    xp: int
+    rank: int
+
+
+class ModLogEntryResponse(BaseModel):
+    id: int
+    action: str
+    moderator_id: str
+    moderator_name: str
+    target_id: str
+    target_name: str
+    reason: str | None = None
+    created_at: datetime
+
+
+class WarningResponse(BaseModel):
+    id: int
+    user_id: str
+    username: str
+    moderator_id: str
+    moderator_name: str
+    reason: str
+    created_at: datetime
 
 
 class ServerResponse(BaseModel):
@@ -185,4 +238,145 @@ async def update_server_settings(
         ai_persona=updated.ai_persona,
         welcome_message=None,
         features=updated.features,
+    )
+
+
+@router.get(
+    "/{server_id}/stats",
+    summary="Statistik ringkas server",
+    response_model=ServerStatsResponse,
+)
+async def get_server_stats(
+    ctx: ManagedServerDep,
+    services: ServicesDep,
+) -> ServerStatsResponse:
+    stats = await services.stats.snapshot(ctx.id)
+    return ServerStatsResponse(
+        member_count=stats.member_count,
+        total_messages=stats.total_messages,
+        ai_queries_today=stats.ai_queries_today,
+        economy_transactions_today=stats.economy_transactions_today,
+        active_warnings=stats.active_warnings,
+        mod_actions_today=stats.mod_actions_today,
+        economy_accounts=stats.economy_accounts,
+        coins_in_circulation=stats.coins_in_circulation,
+        ai_requests_today=stats.ai_requests_today,
+        ai_requests_7d=stats.ai_requests_7d,
+    )
+
+
+@router.get(
+    "/{server_id}/economy/leaderboard",
+    summary="Leaderboard ekonomi server",
+    response_model=PaginatedResponse[LeaderboardEntryResponse],
+)
+async def get_server_leaderboard(
+    ctx: ManagedServerDep,
+    services: ServicesDep,
+    page: int = Query(1, ge=1, description="Nomor halaman (1-based)"),
+    limit: int = Query(20, ge=1, le=100, description="Jumlah item per halaman"),
+    sort: Literal["balance", "xp"] = Query(
+        "balance", description="Urutan berdasarkan balance atau xp"
+    ),
+) -> PaginatedResponse[LeaderboardEntryResponse]:
+    items, total = await services.economy.paginated_leaderboard(
+        ctx.id, by=sort, page=page, limit=limit
+    )
+    pages = max(1, math.ceil(total / limit)) if total > 0 else 1
+    offset = (page - 1) * limit
+    return PaginatedResponse(
+        items=[
+            LeaderboardEntryResponse(
+                user_id=str(entry.user_id),
+                username=entry.username,
+                balance=entry.balance,
+                level=entry.level,
+                xp=entry.xp,
+                rank=offset + i + 1,
+            )
+            for i, entry in enumerate(items)
+        ],
+        total=total,
+        page=page,
+        limit=limit,
+        pages=pages,
+    )
+
+
+@router.get(
+    "/{server_id}/moderation/logs",
+    summary="Log moderasi server",
+    response_model=PaginatedResponse[ModLogEntryResponse],
+)
+async def get_server_mod_logs(
+    ctx: ManagedServerDep,
+    services: ServicesDep,
+    page: int = Query(1, ge=1, description="Nomor halaman (1-based)"),
+    limit: int = Query(20, ge=1, le=100, description="Jumlah item per halaman"),
+    target_id: int | None = Query(None, description="Filter ID target opsional"),
+) -> PaginatedResponse[ModLogEntryResponse]:
+    items, total = await services.moderation.paginated_logs(
+        ctx.id, page=page, limit=limit, target_id=target_id
+    )
+    pages = max(1, math.ceil(total / limit)) if total > 0 else 1
+    return PaginatedResponse(
+        items=[
+            ModLogEntryResponse(
+                id=item.id,
+                action=item.action,
+                moderator_id=str(item.mod_id) if item.mod_id is not None else "",
+                moderator_name=item.mod_name,
+                target_id=str(item.target_id),
+                target_name=item.target_name,
+                reason=item.reason,
+                created_at=item.created_at,
+            )
+            for item in items
+        ],
+        total=total,
+        page=page,
+        limit=limit,
+        pages=pages,
+    )
+
+
+@router.get(
+    "/{server_id}/moderation/warnings",
+    summary="Daftar peringatan server",
+    response_model=PaginatedResponse[WarningResponse],
+)
+@router.get(
+    "/{server_id}/warnings",
+    summary="Daftar peringatan server (alias)",
+    response_model=PaginatedResponse[WarningResponse],
+    include_in_schema=False,
+)
+async def get_server_warnings(
+    ctx: ManagedServerDep,
+    services: ServicesDep,
+    page: int = Query(1, ge=1, description="Nomor halaman (1-based)"),
+    limit: int = Query(20, ge=1, le=100, description="Jumlah item per halaman"),
+    user_id: int | None = Query(None, description="Filter ID user opsional"),
+) -> PaginatedResponse[WarningResponse]:
+    items, total = await services.moderation.paginated_warnings(
+        ctx.id, page=page, limit=limit, user_id=user_id
+    )
+    pages = max(1, math.ceil(total / limit)) if total > 0 else 1
+    return PaginatedResponse(
+        items=[
+            WarningResponse(
+                id=item.id,
+                user_id=str(item.user_id),
+                username=item.username,
+                moderator_id=str(item.mod_id),
+                moderator_name=item.mod_name,
+                reason=item.reason,
+                created_at=item.created_at,
+            )
+            for item in items
+        ],
+        total=total,
+        page=page,
+        limit=limit,
+        pages=pages,
     )

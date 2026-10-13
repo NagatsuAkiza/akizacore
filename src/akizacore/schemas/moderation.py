@@ -37,3 +37,28 @@ class AutomodView:
     allowed_domains: tuple[str, ...] = ()
     action: str = "delete"
     timeout_minutes: int = 10
+
+
+@dataclass(frozen=True, slots=True)
+class ModLogDetailView:
+    id: int
+    server_id: int
+    target_id: int
+    target_name: str
+    mod_id: int | None
+    mod_name: str
+    action: str
+    reason: str
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WarningDetailView:
+    id: int
+    server_id: int
+    user_id: int
+    username: str
+    mod_id: int
+    mod_name: str
+    reason: str
+    created_at: datetime

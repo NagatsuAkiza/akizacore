@@ -92,8 +92,21 @@ class EconomyRepository:
         row = (await self.session.execute(stmt)).one()
         return int(row[0]), int(row[1])
 
+    async def count_transactions_since(self, server_id: int, since: datetime) -> int:
+        stmt = select(func.count(Transaction.id)).where(
+            Transaction.server_id == server_id,
+            Transaction.created_at >= since,
+        )
+        return int((await self.session.execute(stmt)).scalar_one() or 0)
+
+    async def count_accounts(self, server_id: int) -> int:
+        stmt = select(func.count(EconomyAccount.user_id)).where(
+            EconomyAccount.server_id == server_id
+        )
+        return int((await self.session.execute(stmt)).scalar_one() or 0)
+
     async def top(
-        self, server_id: int, *, by_xp: bool, limit: int
+        self, server_id: int, *, by_xp: bool, limit: int, offset: int = 0
     ) -> list[tuple[EconomyAccount, str]]:
         order = EconomyAccount.xp.desc() if by_xp else EconomyAccount.balance.desc()
         stmt = (
@@ -101,6 +114,7 @@ class EconomyRepository:
             .join(User, User.id == EconomyAccount.user_id)
             .where(EconomyAccount.server_id == server_id)
             .order_by(order, EconomyAccount.user_id)
+            .offset(offset)
             .limit(limit)
         )
         rows = (await self.session.execute(stmt)).all()

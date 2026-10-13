@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from akizacore.database.repositories.moderation import ModerationRepository
 from akizacore.database.session import session_scope
 from akizacore.models.moderation import AutomodConfig
-from akizacore.schemas.moderation import AutomodView, ModLogView, WarningView, WarnResult
+from akizacore.schemas.moderation import (
+    AutomodView,
+    ModLogDetailView,
+    ModLogView,
+    WarningDetailView,
+    WarningView,
+    WarnResult,
+)
 
 ACTIONS = ("delete", "warn", "timeout")
 _EDITABLE = {"anti_spam", "spam_messages", "anti_link", "allowed_domains", "action"}
@@ -117,6 +124,61 @@ class ModerationService:
                 ModLogView(r.id, r.target_id, r.mod_id, r.action, r.reason, r.created_at)
                 for r in rows
             ]
+
+    async def paginated_logs(
+        self, server_id: int, *, page: int = 1, limit: int = 20, target_id: int | None = None
+    ) -> tuple[list[ModLogDetailView], int]:
+        limit = max(1, min(limit, 100))
+        page = max(1, page)
+        offset = (page - 1) * limit
+        async with session_scope(self._sf) as session:
+            repo = ModerationRepository(session)
+            total = await repo.count_logs(server_id, target_id=target_id)
+            rows = await repo.paginated_logs(
+                server_id, offset=offset, limit=limit, target_id=target_id
+            )
+            items = [
+                ModLogDetailView(
+                    id=log.id,
+                    server_id=log.server_id,
+                    target_id=log.target_id,
+                    target_name=target_name or str(log.target_id),
+                    mod_id=log.mod_id,
+                    mod_name=mod_name or (str(log.mod_id) if log.mod_id is not None else "Sistem"),
+                    action=log.action,
+                    reason=log.reason,
+                    created_at=log.created_at,
+                )
+                for log, target_name, mod_name in rows
+            ]
+            return items, total
+
+    async def paginated_warnings(
+        self, server_id: int, *, page: int = 1, limit: int = 20, user_id: int | None = None
+    ) -> tuple[list[WarningDetailView], int]:
+        limit = max(1, min(limit, 100))
+        page = max(1, page)
+        offset = (page - 1) * limit
+        async with session_scope(self._sf) as session:
+            repo = ModerationRepository(session)
+            total = await repo.count_active_warnings(server_id, user_id=user_id)
+            rows = await repo.paginated_warnings(
+                server_id, offset=offset, limit=limit, user_id=user_id
+            )
+            items = [
+                WarningDetailView(
+                    id=warn.id,
+                    server_id=warn.server_id,
+                    user_id=warn.user_id,
+                    username=target_name or str(warn.user_id),
+                    mod_id=warn.mod_id,
+                    mod_name=mod_name or str(warn.mod_id),
+                    reason=warn.reason,
+                    created_at=warn.created_at,
+                )
+                for warn, target_name, mod_name in rows
+            ]
+            return items, total
 
     async def get_automod(self, server_id: int) -> AutomodView:
         cached = self._cache.get(server_id)

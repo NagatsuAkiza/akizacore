@@ -683,3 +683,299 @@ async def test_update_server_settings_clear_channel(api_services: Services) -> N
 
     assert response.status_code == 200
     assert response.json()["log_channel_id"] is None
+
+
+# ---------- GET /servers/{server_id}/stats ----------
+
+
+async def test_get_server_stats(api_services: Services) -> None:
+    user_id = 222001
+    server_id = 801
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="stats_admin"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Stats Guild", owner_id=user_id)
+    )
+
+    # Seed data
+    # 1. Economy account & transaction
+    await api_services.economy.credit(server_id, user_id, 500, kind="daily")
+
+    # 2. Moderation warning & log
+    await api_services.moderation.warn(
+        server_id=server_id, user_id=user_id, mod_id=user_id, reason="Spamming test"
+    )
+
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_stats",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Stats Guild",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}/stats")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["member_count"] == 1
+    assert data["economy_accounts"] == 1
+    assert data["coins_in_circulation"] == 600  # 100 starter + 500 credit
+    assert data["economy_transactions_today"] >= 1
+    assert data["active_warnings"] == 1
+    assert data["mod_actions_today"] >= 1
+
+
+# ---------- GET /servers/{server_id}/economy/leaderboard ----------
+
+
+async def test_get_server_leaderboard(api_services: Services) -> None:
+    admin_id = 222002
+    server_id = 802
+    await api_services.onboarding.ensure_user(UserInfo(id=admin_id, username="leader_admin"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Leaderboard Guild", owner_id=admin_id)
+    )
+
+    # Seed 3 users
+    u1, u2, u3 = 222011, 222012, 222013
+    await api_services.onboarding.ensure_user(UserInfo(id=u1, username="alice"))
+    await api_services.onboarding.ensure_user(UserInfo(id=u2, username="bob"))
+    await api_services.onboarding.ensure_user(UserInfo(id=u3, username="charlie"))
+
+    await api_services.economy.credit(server_id, u1, 100, kind="daily")
+    await api_services.economy.credit(server_id, u2, 300, kind="daily")
+    await api_services.economy.credit(server_id, u3, 200, kind="daily")
+
+    session = await api_services.auth.create_session(
+        user_id=admin_id,
+        access_token="tok_leader",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Leaderboard Guild",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        # Page 1, limit 2
+        r1 = await client.get(
+            f"{API_PREFIX}/servers/{server_id}/economy/leaderboard?page=1&limit=2&sort=balance"
+        )
+        assert r1.status_code == 200
+        d1 = r1.json()
+        assert d1["total"] == 3
+        assert d1["pages"] == 2
+        assert d1["page"] == 1
+        assert d1["limit"] == 2
+        assert len(d1["items"]) == 2
+        assert d1["items"][0]["username"] == "bob"
+        assert d1["items"][0]["balance"] == 400
+        assert d1["items"][0]["rank"] == 1
+        assert d1["items"][1]["username"] == "charlie"
+        assert d1["items"][1]["balance"] == 300
+        assert d1["items"][1]["rank"] == 2
+
+        # Page 2
+        r2 = await client.get(
+            f"{API_PREFIX}/servers/{server_id}/economy/leaderboard?page=2&limit=2&sort=balance"
+        )
+        assert r2.status_code == 200
+        d2 = r2.json()
+        assert len(d2["items"]) == 1
+        assert d2["items"][0]["username"] == "alice"
+        assert d2["items"][0]["balance"] == 200
+        assert d2["items"][0]["rank"] == 3
+
+        # Invalid sort -> 422
+        r3 = await client.get(f"{API_PREFIX}/servers/{server_id}/economy/leaderboard?sort=invalid")
+        assert r3.status_code == 422
+
+
+# ---------- GET /servers/{server_id}/moderation/logs ----------
+
+
+async def test_get_server_mod_logs(api_services: Services) -> None:
+    admin_id = 222003
+    server_id = 803
+    await api_services.onboarding.ensure_user(UserInfo(id=admin_id, username="mod_admin"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="ModLog Guild", owner_id=admin_id)
+    )
+
+    target_id = 222031
+    await api_services.onboarding.ensure_user(UserInfo(id=target_id, username="troublemaker"))
+
+    await api_services.moderation.log_action(
+        server_id=server_id,
+        target_id=target_id,
+        mod_id=admin_id,
+        action="kick",
+        reason="Breaking rule 1",
+    )
+    await api_services.moderation.log_action(
+        server_id=server_id,
+        target_id=target_id,
+        mod_id=None,
+        action="automod_delete",
+        reason="Phishing link",
+    )
+
+    session = await api_services.auth.create_session(
+        user_id=admin_id,
+        access_token="tok_modlog",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "ModLog Guild",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}/moderation/logs")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert len(data["items"]) == 2
+    # Check system action (mod_id is None)
+    sys_log = next(i for i in data["items"] if i["action"] == "automod_delete")
+    assert sys_log["moderator_name"] == "Sistem"
+    assert sys_log["target_name"] == "troublemaker"
+    assert sys_log["target_id"] == str(target_id)
+
+    # Check manual action
+    mod_log = next(i for i in data["items"] if i["action"] == "kick")
+    assert mod_log["moderator_name"] == "mod_admin"
+    assert mod_log["moderator_id"] == str(admin_id)
+
+
+# ---------- GET /servers/{server_id}/moderation/warnings ----------
+
+
+async def test_get_server_warnings(api_services: Services) -> None:
+    admin_id = 222004
+    server_id = 804
+    await api_services.onboarding.ensure_user(UserInfo(id=admin_id, username="warn_admin"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Warn Guild", owner_id=admin_id)
+    )
+
+    u1 = 222041
+    u2 = 222042
+    await api_services.onboarding.ensure_user(UserInfo(id=u1, username="bad_user1"))
+    await api_services.onboarding.ensure_user(UserInfo(id=u2, username="bad_user2"))
+
+    # u1 has 2 warnings, 1 cleared
+    await api_services.moderation.warn(
+        server_id=server_id, user_id=u1, mod_id=admin_id, reason="Warn 1"
+    )
+    await api_services.moderation.warn(
+        server_id=server_id, user_id=u1, mod_id=admin_id, reason="Warn 2"
+    )
+    # Clear warnings for u1
+    await api_services.moderation.clear_warnings(server_id=server_id, user_id=u1, mod_id=admin_id)
+    # Add a new active warning for u1
+    await api_services.moderation.warn(
+        server_id=server_id, user_id=u1, mod_id=admin_id, reason="Warn 3 (active)"
+    )
+
+    # u2 has 1 active warning
+    await api_services.moderation.warn(
+        server_id=server_id, user_id=u2, mod_id=admin_id, reason="Warn for u2"
+    )
+
+    session = await api_services.auth.create_session(
+        user_id=admin_id,
+        access_token="tok_warnings",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Warn Guild",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        # 1. All active warnings
+        res_all = await client.get(f"{API_PREFIX}/servers/{server_id}/moderation/warnings")
+        assert res_all.status_code == 200
+        data_all = res_all.json()
+        assert data_all["total"] == 2
+        assert len(data_all["items"]) == 2
+
+        # 2. Filter by user_id
+        res_u1 = await client.get(
+            f"{API_PREFIX}/servers/{server_id}/moderation/warnings?user_id={u1}"
+        )
+        assert res_u1.status_code == 200
+        data_u1 = res_u1.json()
+        assert data_u1["total"] == 1
+        assert data_u1["items"][0]["username"] == "bad_user1"
+        assert data_u1["items"][0]["reason"] == "Warn 3 (active)"
+
+        # 3. Alias /warnings endpoint
+        res_alias = await client.get(f"{API_PREFIX}/servers/{server_id}/warnings")
+        assert res_alias.status_code == 200
+        assert res_alias.json()["total"] == 2

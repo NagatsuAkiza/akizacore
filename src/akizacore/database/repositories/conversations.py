@@ -62,3 +62,11 @@ class ConversationRepository:
             .returning(Conversation.id)
         )
         return len((await self.session.execute(stmt)).all())
+
+    async def count_messages_for_server(self, server_id: int) -> int:
+        stmt = (
+            select(func.count(Message.id))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(Conversation.server_id == server_id)
+        )
+        return int((await self.session.execute(stmt)).scalar_one() or 0)

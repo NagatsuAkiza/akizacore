@@ -33,7 +33,7 @@ Python minimum `>=3.12`. Quality gate: ruff, mypy (strict untuk `services/` dan 
     - [x] 6a-2 Login Discord OAuth2 + sesi: tabel `sessions` (migrasi `0007_user_sessions`), `AuthService`, endpoint `/auth/discord/login`, `/auth/discord/callback`, `/auth/logout`, `/auth/me`, cookie httpOnly, validasi state CSRF, `global_name` di `User` dan `UserInfo`, `Unauthorized` exception, 14 test baru
     - [x] 6a-3 Daftar server yang dikelola user: endpoint `GET /servers` & `GET /servers/{id}`, izin Manage Server/Admin dicek ulang tiap request, cache guild di sesi database dengan TTL, `ManagedServerDep`, cross-reference `bot_active` dengan DB, 10 test baru
     - [x] 6a-4 `GET/PUT /servers/{id}/settings` memakai `SettingsService`: validasi prefix, channel IDs, autorole, ai persona, toggle modules/features atomik, 6 test baru (total 16 test servers)
-    - [ ] 6a-5 Endpoint baca: stats, leaderboard, modlog, warnings (paginasi `?page=&limit=`)
+    - [x] 6a-5 Endpoint baca: stats (`GET /servers/{id}/stats`), leaderboard (`GET /servers/{id}/economy/leaderboard`), modlog (`GET /servers/{id}/moderation/logs`), warnings (`GET /servers/{id}/moderation/warnings` & alias `/warnings`) dengan paginasi `?page=&limit=`, 4 test baru (total 20 test servers)
     - [ ] 6a-6 Test API lintas-server (401/403, akses server lain)
   - [x] **6b Dashboard React**: scaffold Vite + React + TypeScript + Tailwind CSS v4 + React Router v7 + TanStack Query v5 selesai. Meliputi layout dashboard, auth guard, komponen navigasi, query hooks, serta halaman Login, Callback, Server list, Overview, Settings, Economy, dan Moderation.
   - **Ditunda:** adjust saldo dari web, CRUD shop dari web, editor persona dengan preview, riwayat percakapan AI, halaman memory, aksi destruktif moderasi lewat API (jangan diekspos pada Fase 6).
@@ -105,6 +105,10 @@ Dijalankan di sandbox dengan PostgreSQL lokal (tanpa Postgres, test database ter
 | ----------------------------- | ---------- |
 | `origin/main` di `7f4dc28`    | 240 passed |
 | + patch `api-skeleton` (6a-1) | 261 passed |
+| + 6a-2 (OAuth2 + sessions)    | 275 passed |
+| + 6a-3 (server list)          | 285 passed |
+| + 6a-4 (server settings)      | 291 passed |
+| + 6a-5 (read endpoints)       | 295 passed |
 
 Ruff check, ruff format check, dan mypy bersih pada keduanya. Ada satu warning dependency `audioop` dari `discord.player` (bukan failure).
 
