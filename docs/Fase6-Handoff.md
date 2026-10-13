@@ -34,7 +34,7 @@ Python minimum `>=3.12`. Quality gate: ruff, mypy (strict untuk `services/` dan 
     - [x] 6a-3 Daftar server yang dikelola user: endpoint `GET /servers` & `GET /servers/{id}`, izin Manage Server/Admin dicek ulang tiap request, cache guild di sesi database dengan TTL, `ManagedServerDep`, cross-reference `bot_active` dengan DB, 10 test baru
     - [x] 6a-4 `GET/PUT /servers/{id}/settings` memakai `SettingsService`: validasi prefix, channel IDs, autorole, ai persona, toggle modules/features atomik, 6 test baru (total 16 test servers)
     - [x] 6a-5 Endpoint baca: stats (`GET /servers/{id}/stats`), leaderboard (`GET /servers/{id}/economy/leaderboard`), modlog (`GET /servers/{id}/moderation/logs`), warnings (`GET /servers/{id}/moderation/warnings` & alias `/warnings`) dengan paginasi `?page=&limit=`, 4 test baru (total 20 test servers)
-    - [ ] 6a-6 Test API lintas-server (401/403, akses server lain)
+    - [x] 6a-6 Test API lintas-server: pengujian komprehensif 401 unauthenticated, 403 unauthorized cross-server & permission check, 404 bot inactive, dan isolasi data multi-tenant (33 test baru di test_api_cross_server.py, total 328 test suite)
   - [x] **6b Dashboard React**: scaffold Vite + React + TypeScript + Tailwind CSS v4 + React Router v7 + TanStack Query v5 selesai. Meliputi layout dashboard, auth guard, komponen navigasi, query hooks, serta halaman Login, Callback, Server list, Overview, Settings, Economy, dan Moderation.
   - **Ditunda:** adjust saldo dari web, CRUD shop dari web, editor persona dengan preview, riwayat percakapan AI, halaman memory, aksi destruktif moderasi lewat API (jangan diekspos pada Fase 6).
 
@@ -109,6 +109,7 @@ Dijalankan di sandbox dengan PostgreSQL lokal (tanpa Postgres, test database ter
 | + 6a-3 (server list)          | 285 passed |
 | + 6a-4 (server settings)      | 291 passed |
 | + 6a-5 (read endpoints)       | 295 passed |
+| + 6a-6 (cross-server tests)   | 328 passed |
 
 Ruff check, ruff format check, dan mypy bersih pada keduanya. Ada satu warning dependency `audioop` dari `discord.player` (bukan failure).
 
