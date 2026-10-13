@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_DATABASE_URL = "postgresql+asyncpg://akiza:akiza@localhost:5432/akizacore"
@@ -17,6 +17,25 @@ class DatabaseSettings(BaseSettings):
     model_config = _ENV
 
     database_url: str = DEFAULT_DATABASE_URL
+
+
+class ApiSettings(BaseSettings):
+    """Konfigurasi proses API (Fase 6). Tidak membutuhkan token Discord."""
+
+    model_config = _ENV
+
+    environment: Literal["dev", "prod"] = "dev"
+    database_url: str = DEFAULT_DATABASE_URL
+    # Origin dashboard yang boleh memanggil API (CORS). Wajib daftar eksplisit karena sesi
+    # memakai cookie (credentials); wildcard "*" tidak boleh.
+    dashboard_origins: list[str] = ["http://localhost:5173"]
+
+    @field_validator("dashboard_origins")
+    @classmethod
+    def _no_wildcard(cls, origins: list[str]) -> list[str]:
+        if any(origin.strip() == "*" for origin in origins):
+            raise ValueError("DASHBOARD_ORIGINS tidak boleh berisi '*' (API memakai cookie sesi).")
+        return [origin.rstrip("/") for origin in origins]
 
 
 class Settings(BaseSettings):

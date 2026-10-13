@@ -108,6 +108,16 @@ Copy-Item .env.example .env      # isi DISCORD_TOKEN
 python -m akizacore.main
 ```
 
+## API dashboard (Fase 6)
+
+```powershell
+pip install -e ".[dev,db,ai,api]"
+uvicorn akizacore.api.app:app --reload   # http://127.0.0.1:8000/api/v1/health
+```
+
+Dokumentasi interaktif (hanya `ENVIRONMENT=dev`): `/api/v1/docs`. Skema OpenAPI:
+`/api/v1/openapi.json`. Semua error berformat `{"error": {"code": ..., "message": ...}}`.
+
 ## Perintah harian
 
 ```powershell
