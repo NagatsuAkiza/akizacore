@@ -4,6 +4,7 @@ from akizacore.database.repositories.economy import EconomyRepository
 from akizacore.database.repositories.memories import MemoryRepository
 from akizacore.database.repositories.moderation import ModerationRepository
 from akizacore.database.repositories.servers import ServerRepository
+from akizacore.database.repositories.sessions import SessionRepository
 from akizacore.database.repositories.settings import SettingsRepository
 from akizacore.database.repositories.shop import ShopRepository
 from akizacore.database.repositories.users import UserRepository
@@ -13,6 +14,7 @@ __all__ = [
     "ConversationRepository",
     "EconomyRepository",
     "ServerRepository",
+    "SessionRepository",
     "SettingsRepository",
     "ShopRepository",
     "ModerationRepository",

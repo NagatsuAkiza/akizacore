@@ -30,6 +30,14 @@ class ApiSettings(BaseSettings):
     # memakai cookie (credentials); wildcard "*" tidak boleh.
     dashboard_origins: list[str] = ["http://localhost:5173"]
 
+    # Discord OAuth (Fase 6a-2)
+    discord_client_id: str = ""
+    discord_client_secret: SecretStr = SecretStr("")
+    discord_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/discord/callback"
+    session_ttl_s: int = 7 * 86400
+    session_cookie_name: str = "akiza_session"
+    dashboard_url: str = "http://localhost:5173"
+
     @field_validator("dashboard_origins")
     @classmethod
     def _no_wildcard(cls, origins: list[str]) -> list[str]:

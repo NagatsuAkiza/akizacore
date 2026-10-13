@@ -44,3 +44,8 @@ class InsufficientFunds(AkizaError):
 class QuotaExceeded(AkizaError):
     user_message = "Kuota habis, coba lagi nanti."
     http_status = 429
+
+
+class Unauthorized(AkizaError):
+    user_message = "Kamu belum login."
+    http_status = 401

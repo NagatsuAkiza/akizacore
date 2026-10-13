@@ -9,6 +9,7 @@ class UserInfo(BaseModel):
     id: int
     username: str
     avatar: str | None = None
+    global_name: str | None = None
 
 
 class GuildInfo(BaseModel):

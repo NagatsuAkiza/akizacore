@@ -12,19 +12,32 @@ class UserRepository:
     async def get(self, user_id: int) -> User | None:
         return await self.session.get(User, user_id, populate_existing=True)
 
-    async def upsert(self, user_id: int, username: str, avatar: str | None) -> None:
-        stmt = insert(User).values(id=user_id, username=username, avatar=avatar)
+    async def upsert(
+        self,
+        user_id: int,
+        username: str,
+        avatar: str | None,
+        global_name: str | None = None,
+    ) -> None:
+        stmt = insert(User).values(
+            id=user_id,
+            username=username,
+            avatar=avatar,
+            global_name=global_name,
+        )
         stmt = stmt.on_conflict_do_update(
             index_elements=[User.id],
             set_={
                 "username": stmt.excluded.username,
                 "avatar": stmt.excluded.avatar,
+                "global_name": stmt.excluded.global_name,
                 "updated_at": func.now(),
             },
             # hanya tulis bila ada yang berubah (hemat write di tiap command)
             where=or_(
                 User.username != stmt.excluded.username,
                 User.avatar.is_distinct_from(stmt.excluded.avatar),
+                User.global_name.is_distinct_from(stmt.excluded.global_name),
             ),
         )
         await self.session.execute(stmt)

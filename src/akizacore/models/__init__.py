@@ -3,6 +3,7 @@ from akizacore.models.economy import EconomyAccount, Transaction
 from akizacore.models.memory import Memory
 from akizacore.models.moderation import AutomodConfig, ModerationLog, ModWarning
 from akizacore.models.server import Server, ServerSettings
+from akizacore.models.session import UserSession
 from akizacore.models.shop import InventoryItem, ShopItem
 from akizacore.models.user import User, UserProfile
 
@@ -22,4 +23,5 @@ __all__ = [
     "Transaction",
     "User",
     "UserProfile",
+    "UserSession",
 ]

@@ -16,6 +16,7 @@ from akizacore.core.exceptions import (
     PermissionDenied,
     ProviderUnavailable,
     QuotaExceeded,
+    Unauthorized,
     ValidationFailed,
 )
 
@@ -23,6 +24,7 @@ log = structlog.get_logger()
 
 # Urutan penting: subclass lebih dulu. AkizaError dasar menjadi fallback.
 _DOMAIN_CODES: tuple[tuple[type[AkizaError], str], ...] = (
+    (Unauthorized, "unauthorized"),
     (NotFound, "not_found"),
     (ValidationFailed, "validation_failed"),
     (PermissionDenied, "forbidden"),

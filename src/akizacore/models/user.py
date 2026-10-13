@@ -13,6 +13,7 @@ class User(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     username: Mapped[str] = mapped_column(String(100))
     avatar: Mapped[str | None] = mapped_column(String(255), default=None)
+    global_name: Mapped[str | None] = mapped_column(String(100), default=None)
 
 
 class UserProfile(TimestampMixin, Base):

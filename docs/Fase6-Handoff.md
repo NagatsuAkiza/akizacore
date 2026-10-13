@@ -30,7 +30,7 @@ Python minimum `>=3.12`. Quality gate: ruff, mypy (strict untuk `services/` dan 
 - **Fase 6 - Dashboard: sedang berjalan.** Dimulai 13 Okt 2026 atas instruksi pemilik.
   - **6a Backend API** (FastAPI, tanpa UI):
     - [x] 6a-1 Skeleton: app factory, format error seragam, health check, CORS, `ApiSettings` (patch `api-skeleton`)
-    - [ ] 6a-2 Login Discord OAuth2 + sesi (menunggu keputusan strategi sesi, lihat bawah)
+    - [x] 6a-2 Login Discord OAuth2 + sesi: tabel `sessions` (migrasi `0007_user_sessions`), `AuthService`, endpoint `/auth/discord/login`, `/auth/discord/callback`, `/auth/logout`, `/auth/me`, cookie httpOnly, validasi state CSRF, `global_name` di `User` dan `UserInfo`, `Unauthorized` exception, 14 test baru
     - [ ] 6a-3 Daftar server yang dikelola user (Manage Server + bot aktif), izin dicek ulang tiap request
     - [ ] 6a-4 `GET/PUT /servers/{id}/settings` memakai `SettingsService`
     - [ ] 6a-5 Endpoint baca: stats, leaderboard, modlog, warnings (paginasi `?page=&limit=`)

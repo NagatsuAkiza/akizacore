@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from akizacore.api.errors import register_error_handlers
-from akizacore.api.routers import health
+from akizacore.api.routers import auth, health
 from akizacore.config import ApiSettings
 from akizacore.database.engine import build_engine, build_session_factory
 from akizacore.services.container import Services
@@ -58,6 +58,7 @@ def create_app(
     )
     register_error_handlers(app)
     app.include_router(health.router, prefix=API_PREFIX)
+    app.include_router(auth.router, prefix=API_PREFIX)
     return app
 
 

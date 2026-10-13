@@ -46,5 +46,5 @@ class OnboardingService:
     @staticmethod
     async def _ensure_user(session: AsyncSession, user: UserInfo) -> None:
         repo = UserRepository(session)
-        await repo.upsert(user.id, user.username, user.avatar)
+        await repo.upsert(user.id, user.username, user.avatar, user.global_name)
         await repo.ensure_profile(user.id)
