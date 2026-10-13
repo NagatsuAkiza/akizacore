@@ -408,3 +408,278 @@ async def test_servers_discord_rate_limited_uses_cache(api_services: Services) -
     data = response.json()
     assert len(data) == 1
     assert data[0]["id"] == "801"
+
+
+# ---------- GET & PUT /servers/{server_id}/settings ----------
+
+
+async def test_get_server_settings_success(api_services: Services) -> None:
+    user_id = 111000
+    server_id = 701
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="settings_owner"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Settings Server", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_settings",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Settings Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.get(f"{API_PREFIX}/servers/{server_id}/settings")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["server_id"] == str(server_id)
+    assert data["prefix"] == "!"
+    assert data["log_channel_id"] is None
+    assert data["welcome_channel_id"] is None
+    assert data["features"]["economy"] is True
+    assert data["features"]["ai"] is False
+
+
+async def test_update_server_settings_prefix_and_channels(api_services: Services) -> None:
+    user_id = 111001
+    server_id = 702
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="update_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Update Server", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_update",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Update Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    payload = {
+        "prefix": "?",
+        "log_channel_id": "1122334455",
+        "welcome_channel_id": "9988776655",
+        "ai_persona": "Asisten ramah",
+    }
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.put(f"{API_PREFIX}/servers/{server_id}/settings", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["prefix"] == "?"
+    assert data["log_channel_id"] == "1122334455"
+    assert data["welcome_channel_id"] == "9988776655"
+    assert data["ai_persona"] == "Asisten ramah"
+
+
+async def test_update_server_settings_features(api_services: Services) -> None:
+    user_id = 111002
+    server_id = 703
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="feat_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Feat Server", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_feat",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Feat Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    payload = {
+        "features": {
+            "ai": True,
+            "economy": False,
+        }
+    }
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.put(f"{API_PREFIX}/servers/{server_id}/settings", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["features"]["ai"] is True
+    assert data["features"]["economy"] is False
+    assert data["features"]["fun"] is True  # fitur lain tetap utuh
+
+
+async def test_update_server_settings_invalid_prefix(api_services: Services) -> None:
+    user_id = 111003
+    server_id = 704
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="bad_prefix_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Bad Prefix Server", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_bad_prefix",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Bad Prefix Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    # Prefix lebih dari 5 karakter
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.put(
+            f"{API_PREFIX}/servers/{server_id}/settings", json={"prefix": "terlalu_panjang"}
+        )
+
+    assert response.status_code in (400, 422)
+
+
+async def test_update_server_settings_invalid_feature(api_services: Services) -> None:
+    user_id = 111004
+    server_id = 705
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="bad_feat_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Bad Feat Server", owner_id=user_id)
+    )
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_bad_feat",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Bad Feat Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.put(
+            f"{API_PREFIX}/servers/{server_id}/settings",
+            json={"features": {"crypto_mining": True}},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "validation_failed"
+
+
+async def test_update_server_settings_clear_channel(api_services: Services) -> None:
+    user_id = 111005
+    server_id = 706
+    await api_services.onboarding.ensure_user(UserInfo(id=user_id, username="clear_ch_user"))
+    await api_services.onboarding.register_guild(
+        GuildInfo(id=server_id, name="Clear Ch Server", owner_id=user_id)
+    )
+    # Set log_channel_id awal
+    from akizacore.schemas.settings import SettingsUpdate
+
+    await api_services.settings.update(server_id, SettingsUpdate(log_channel_id=99999))
+
+    session = await api_services.auth.create_session(
+        user_id=user_id,
+        access_token="tok_clear",
+        ttl_s=3600,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v10/users/@me/guilds":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": str(server_id),
+                        "name": "Clear Ch Server",
+                        "owner": True,
+                        "permissions": "0",
+                    }
+                ],
+            )
+        return httpx.Response(404)
+
+    settings = make_settings()
+    app = create_app(settings=settings, services=api_services)
+    app.state.http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    async with client_for(app, cookies={settings.session_cookie_name: session.id}) as client:
+        response = await client.put(
+            f"{API_PREFIX}/servers/{server_id}/settings",
+            json={"log_channel_id": None},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["log_channel_id"] is None

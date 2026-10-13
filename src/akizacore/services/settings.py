@@ -21,8 +21,18 @@ class SettingsService:
 
     async def update(self, server_id: int, data: SettingsUpdate) -> SettingsRead:
         values = data.model_dump(exclude_unset=True)
+        if "features" in values and values["features"] is not None:
+            for feat in values["features"]:
+                if feat not in FEATURES:
+                    raise ValidationFailed(f"Fitur tidak dikenal: {feat}")
         async with session_scope(self._sf) as session:
-            row = await SettingsRepository(session).update(server_id, values)
+            repo = SettingsRepository(session)
+            if "features" in values and values["features"] is not None:
+                current = await repo.get(server_id)
+                if current is None:
+                    raise NotFound(_NOT_REGISTERED)
+                values["features"] = {**current.features, **values["features"]}
+            row = await repo.update(server_id, values)
             if row is None:
                 raise NotFound(_NOT_REGISTERED)
             return SettingsRead.model_validate(row)

@@ -38,6 +38,7 @@ class SettingsUpdate(BaseModel):
     autorole_id: int | None = None
     ai_persona: str | None = None
     prefix: str | None = None
+    features: dict[str, bool] | None = None
 
     @field_validator("prefix")
     @classmethod
