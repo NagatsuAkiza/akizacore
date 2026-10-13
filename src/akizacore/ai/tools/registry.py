@@ -24,6 +24,8 @@ class ToolRegistry:
             return f"Ditolak: modul {tool.feature} dimatikan di server ini."
         if tool.permission == "admin" and not ctx.is_admin:
             return "Ditolak: tool ini butuh izin Manage Server."
+        if tool.needs_moderation and ctx.moderation is None:
+            return "Ditolak: moderasi lewat AI tidak tersedia di konteks ini."
         return None
 
     def specs_for(self, ctx: ToolContext) -> list[ToolSpec]:

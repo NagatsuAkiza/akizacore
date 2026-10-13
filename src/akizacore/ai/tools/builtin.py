@@ -148,6 +148,7 @@ def build_default_registry(
                 warn_member,
                 permission="admin",
                 feature="moderation",
+                needs_moderation=True,
                 side_effect="write",
             ),
             Tool(
@@ -157,6 +158,7 @@ def build_default_registry(
                 list_warnings,
                 permission="admin",
                 feature="moderation",
+                needs_moderation=True,
             ),
             Tool(
                 "moderation_clear_warnings",
@@ -165,6 +167,7 @@ def build_default_registry(
                 clear_member_warnings,
                 permission="admin",
                 feature="moderation",
+                needs_moderation=True,
                 side_effect="write",
             ),
             Tool(
@@ -174,6 +177,7 @@ def build_default_registry(
                 show_modlog,
                 permission="admin",
                 feature="moderation",
+                needs_moderation=True,
             ),
             Tool(
                 "moderation_request",
@@ -186,6 +190,7 @@ def build_default_registry(
                 request_destructive_moderation,
                 permission="admin",
                 feature="moderation",
+                needs_moderation=True,
                 side_effect="write",
             ),
         ]

@@ -69,6 +69,7 @@ class Tool:
     permission: Literal["everyone", "admin"] = "everyone"
     side_effect: Literal["read", "write", "destructive"] = "read"
     feature: str | None = None  # modul yang harus aktif di server
+    needs_moderation: bool = False  # hanya tersedia bila ToolContext.moderation terisi
     timeout_s: float = 8.0
 
     def spec(self) -> ToolSpec:

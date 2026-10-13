@@ -12,7 +12,7 @@ from discord.ext import commands
 
 from akizacore.ai.context import ReplyContext
 from akizacore.ai.orchestrator import AIOrchestrator, AskRequest, AskResult, TranslateRequest
-from akizacore.ai.tools.base import ModerationGateway
+from akizacore.ai.tools.base import ModerationGateway, clean_text
 from akizacore.core.bot import AkizaBot
 from akizacore.core.exceptions import AkizaError
 from akizacore.services.moderation import ModerationService
@@ -23,6 +23,21 @@ log = structlog.get_logger()
 CONFIRMATION_TTL_S = 120.0
 
 
+# Izin Discord yang wajib dimiliki pemohon untuk tiap aksi destruktif. Sama dengan command manual,
+# supaya jalur AI tidak menjadi cara melewati izin spesifik (cukup Manage Server tidak cukup).
+_ACTION_PERMISSIONS = {
+    "kick": "kick_members",
+    "ban": "ban_members",
+    "timeout": "moderate_members",
+    "untimeout": "moderate_members",
+    "purge": "manage_messages",
+    "add_role": "manage_roles",
+    "remove_role": "manage_roles",
+}
+_MEMBER_ACTIONS = frozenset({"kick", "ban", "timeout", "untimeout", "add_role", "remove_role"})
+_PERMISSION_DENIED = "Kamu tidak punya izin Discord untuk aksi ini."
+
+
 @dataclass
 class _PendingConfirmation:
     guild_id: int
@@ -30,6 +45,7 @@ class _PendingConfirmation:
     action: str
     created_at: float
     callback: Callable[[], Awaitable[str]]
+    summary: str = ""
 
 
 class _ConfirmationManager:
@@ -43,11 +59,12 @@ class _ConfirmationManager:
         actor_id: int,
         action: str,
         callback: Callable[[], Awaitable[str]],
+        summary: str = "",
     ) -> str:
         self._purge_expired()
         token = secrets.token_urlsafe(9)
         self._pending[token] = _PendingConfirmation(
-            guild_id, actor_id, action, time.monotonic(), callback
+            guild_id, actor_id, action, time.monotonic(), callback, summary
         )
         return token
 
@@ -84,12 +101,32 @@ class _DiscordModerationGateway(ModerationGateway):
         service: ModerationService,
         confirmations: _ConfirmationManager,
         channel: discord.abc.Messageable,
+        actor_is_owner: bool = False,
     ) -> None:
         self.guild = guild
         self.actor = actor
         self.service = service
         self.confirmations = confirmations
         self.channel = channel
+        self.actor_is_owner = actor_is_owner
+
+    def _current_actor(self) -> discord.User | discord.Member:
+        """Member terbaru dari cache guild: izin dan role bisa berubah sejak request dibuat."""
+        return self.guild.get_member(self.actor.id) or self.actor
+
+    def _require_permission(self, permission: str, *, in_channel: bool = False) -> None:
+        """Pemohon harus punya izin Discord spesifik. Owner bot lolos, seperti command manual."""
+        if self.actor_is_owner:
+            return
+        actor = self._current_actor()
+        if not isinstance(actor, discord.Member):
+            raise AkizaError(_PERMISSION_DENIED)
+        if in_channel and isinstance(self.channel, discord.TextChannel | discord.Thread):
+            granted = self.channel.permissions_for(actor)
+        else:
+            granted = actor.guild_permissions
+        if not getattr(granted, permission, False):
+            raise AkizaError(_PERMISSION_DENIED)
 
     async def _member(self, user_id: int) -> discord.Member:
         member = self.guild.get_member(user_id)
@@ -108,15 +145,34 @@ class _DiscordModerationGateway(ModerationGateway):
             raise AkizaError("Tidak bisa memoderasi diri sendiri.")
         if self.guild.me is not None and member.top_role >= self.guild.me.top_role:
             raise AkizaError("Role target lebih tinggi dari role bot.")
+        actor = self._current_actor()
         if (
-            isinstance(self.actor, discord.Member)
-            and self.actor.id != self.guild.owner_id
-            and member.top_role >= self.actor.top_role
+            isinstance(actor, discord.Member)
+            and actor.id != self.guild.owner_id
+            and member.top_role >= actor.top_role
         ):
             raise AkizaError("Role target sama atau lebih tinggi dari kamu.")
         return member
 
+    def _role(self, role_id: int | None) -> discord.Role:
+        role = self.guild.get_role(role_id or 0)
+        if role is None:
+            raise AkizaError("Role tidak ditemukan di server ini.")
+        if role.is_default() or role.managed:
+            raise AkizaError("Role bawaan atau role bot/integrasi tidak bisa dikelola lewat AI.")
+        if self.guild.me is not None and role >= self.guild.me.top_role:
+            raise AkizaError("Role target lebih tinggi dari role bot.")
+        actor = self._current_actor()
+        if (
+            isinstance(actor, discord.Member)
+            and actor.id != self.guild.owner_id
+            and role >= actor.top_role
+        ):
+            raise AkizaError("Role itu sama atau lebih tinggi dari role tertinggi kamu.")
+        return role
+
     async def warn(self, target_id: int, reason: str) -> str:
+        self._require_permission("moderate_members")
         member = await self._member(target_id)
         result = await self.service.warn(
             server_id=self.guild.id,
@@ -127,6 +183,7 @@ class _DiscordModerationGateway(ModerationGateway):
         return f"{member.display_name} diberi warning (total aktif: {result.total})."
 
     async def warnings(self, target_id: int) -> str:
+        self._require_permission("moderate_members")
         member = await self._member(target_id)
         items = await self.service.warnings(self.guild.id, member.id)
         if not items:
@@ -134,6 +191,7 @@ class _DiscordModerationGateway(ModerationGateway):
         return "\n".join(f"#{item.id} oleh <@{item.mod_id}>: {item.reason}" for item in items)
 
     async def clear_warnings(self, target_id: int) -> str:
+        self._require_permission("manage_guild")
         member = await self._member(target_id)
         count = await self.service.clear_warnings(
             server_id=self.guild.id,
@@ -143,6 +201,7 @@ class _DiscordModerationGateway(ModerationGateway):
         return f"{count} warning aktif milik {member.display_name} dihapus."
 
     async def modlog(self, target_id: int | None) -> str:
+        self._require_permission("moderate_members")
         if target_id is not None:
             await self._member(target_id)
         entries = await self.service.recent_logs(self.guild.id, limit=10, target_id=target_id)
@@ -163,12 +222,12 @@ class _DiscordModerationGateway(ModerationGateway):
         amount: int | None = None,
         role_id: int | None = None,
     ) -> str:
-        if action in {"kick", "ban", "timeout", "untimeout", "add_role", "remove_role"}:
-            if target_id is None:
-                raise AkizaError("Aksi ini membutuhkan user_id target.")
-            member = await self._member(target_id)
-        else:
-            member = None
+        permission = _ACTION_PERMISSIONS.get(action)
+        if permission is None:
+            raise AkizaError("Aksi moderasi tidak dikenal.")
+        self._require_permission(permission, in_channel=action == "purge")
+        if action in _MEMBER_ACTIONS and target_id is None:
+            raise AkizaError("Aksi ini membutuhkan user_id target.")
         if action == "timeout" and minutes is None:
             raise AkizaError("Timeout membutuhkan minutes.")
         if action == "purge" and amount is None:
@@ -176,69 +235,157 @@ class _DiscordModerationGateway(ModerationGateway):
         if action in {"add_role", "remove_role"} and role_id is None:
             raise AkizaError("Manajemen role membutuhkan role_id.")
 
-        async def execute() -> str:
-            if action == "purge":
-                if not isinstance(self.channel, discord.TextChannel | discord.Thread):
-                    raise AkizaError("Channel ini tidak mendukung purge.")
-                try:
-                    deleted = await self.channel.purge(limit=amount or 1)
-                except discord.Forbidden as exc:
-                    raise AkizaError(
-                        "Bot butuh izin Manage Messages dan Read Message History."
-                    ) from exc
-                except discord.HTTPException as exc:
-                    raise AkizaError("Discord gagal menghapus pesan saat ini.") from exc
-                await self.service.log_action(
-                    server_id=self.guild.id,
-                    target_id=self.actor.id,
-                    mod_id=self.actor.id,
-                    action=f"ai_purge:{len(deleted)}",
-                    reason=f"#{self.channel.name}: {reason}",
-                )
-                return f"{len(deleted)} pesan dihapus."
+        # Validasi awal supaya request yang pasti gagal tidak menghasilkan token.
+        member = await self._member(target_id) if target_id is not None else None
+        role = self._role(role_id) if action in {"add_role", "remove_role"} else None
+        if action == "purge" and not isinstance(self.channel, discord.TextChannel | discord.Thread):
+            raise AkizaError("Channel ini tidak mendukung purge.")
 
-            assert member is not None
-            target = await self._member(member.id)
+        summary = self._summary(
+            action=action,
+            member=member,
+            reason=reason,
+            minutes=minutes,
+            amount=amount,
+            role=role,
+        )
+        # Semua parameter terikat lewat closure: yang dijalankan /confirm persis yang diminta.
+        # Target, role, dan izin pemohon divalidasi ulang saat eksekusi karena state bisa berubah.
+        guild_id = self.guild.id
+
+        async def execute() -> str:
             try:
-                if action == "kick":
-                    await target.kick(reason=reason)
-                elif action == "ban":
-                    await target.ban(reason=reason, delete_message_days=0)
-                elif action in {"timeout", "untimeout"}:
-                    await target.timeout(
-                        None if action == "untimeout" else timedelta(minutes=minutes or 1),
-                        reason=reason,
-                    )
-                else:
-                    role = self.guild.get_role(role_id or 0)
-                    if role is None:
-                        raise AkizaError("Role tidak ditemukan di server ini.")
-                    if self.guild.me is not None and role >= self.guild.me.top_role:
-                        raise AkizaError("Role target lebih tinggi dari role bot.")
-                    if action == "add_role":
-                        await target.add_roles(role, reason=reason)
-                    else:
-                        await target.remove_roles(role, reason=reason)
-            except discord.Forbidden as exc:
-                raise AkizaError("Bot tidak punya izin atau hierarchy tidak mencukupi.") from exc
-            except discord.HTTPException as exc:
-                raise AkizaError("Discord gagal menjalankan aksi moderasi saat ini.") from exc
-            await self.service.log_action(
-                server_id=self.guild.id,
-                target_id=target.id,
-                mod_id=self.actor.id,
-                action=f"ai_{action}",
-                reason=reason,
-            )
-            return f"Aksi {action} berhasil untuk {target.display_name}."
+                return await self._execute(
+                    action=action,
+                    permission=permission,
+                    target_id=target_id,
+                    reason=reason,
+                    minutes=minutes,
+                    amount=amount,
+                    role_id=role_id,
+                )
+            except Exception as exc:
+                await self._log_failure(guild_id, action, target_id, reason, exc)
+                raise
 
         token = self.confirmations.create(
-            guild_id=self.guild.id,
+            guild_id=guild_id,
             actor_id=self.actor.id,
             action=action,
             callback=execute,
+            summary=summary,
         )
-        return f"Konfirmasi diperlukan untuk {action}. Jalankan `/confirm token:{token}` dalam 120 detik."
+        return (
+            f"Konfirmasi diperlukan: {summary}. "
+            f"Jalankan `/confirm token:{token}` dalam {int(CONFIRMATION_TTL_S)} detik."
+        )
+
+    @staticmethod
+    def _summary(
+        *,
+        action: str,
+        member: discord.Member | None,
+        reason: str,
+        minutes: int | None,
+        amount: int | None,
+        role: discord.Role | None,
+    ) -> str:
+        parts = [action]
+        if member is not None:
+            parts.append(f"target {clean_text(member.display_name, 40)} ({member.id})")
+        if role is not None:
+            parts.append(f"role {clean_text(role.name, 40)} ({role.id})")
+        if minutes is not None and action == "timeout":
+            parts.append(f"{minutes} menit")
+        if amount is not None and action == "purge":
+            parts.append(f"{amount} pesan")
+        parts.append(f"alasan: {clean_text(reason, 100)}")
+        return ", ".join(parts)
+
+    async def _execute(
+        self,
+        *,
+        action: str,
+        permission: str,
+        target_id: int | None,
+        reason: str,
+        minutes: int | None,
+        amount: int | None,
+        role_id: int | None,
+    ) -> str:
+        self._require_permission(permission, in_channel=action == "purge")
+        if action == "purge":
+            if not isinstance(self.channel, discord.TextChannel | discord.Thread):
+                raise AkizaError("Channel ini tidak mendukung purge.")
+            try:
+                deleted = await self.channel.purge(limit=amount or 1)
+            except discord.Forbidden as exc:
+                raise AkizaError(
+                    "Bot butuh izin Manage Messages dan Read Message History."
+                ) from exc
+            except discord.HTTPException as exc:
+                raise AkizaError("Discord gagal menghapus pesan saat ini.") from exc
+            await self.service.log_action(
+                server_id=self.guild.id,
+                target_id=self.actor.id,
+                mod_id=self.actor.id,
+                action=f"ai_purge:{len(deleted)}",
+                reason=f"#{self.channel.name}: {reason}",
+            )
+            return f"{len(deleted)} pesan dihapus."
+
+        assert target_id is not None
+        target = await self._member(target_id)
+        role = self._role(role_id) if action in {"add_role", "remove_role"} else None
+        try:
+            if action == "kick":
+                await target.kick(reason=reason)
+            elif action == "ban":
+                await target.ban(reason=reason, delete_message_days=0)
+            elif action in {"timeout", "untimeout"}:
+                await target.timeout(
+                    None if action == "untimeout" else timedelta(minutes=minutes or 1),
+                    reason=reason,
+                )
+            elif action == "add_role":
+                assert role is not None
+                await target.add_roles(role, reason=reason)
+            else:
+                assert role is not None
+                await target.remove_roles(role, reason=reason)
+        except discord.Forbidden as exc:
+            raise AkizaError("Bot tidak punya izin atau hierarchy tidak mencukupi.") from exc
+        except discord.HTTPException as exc:
+            raise AkizaError("Discord gagal menjalankan aksi moderasi saat ini.") from exc
+        await self.service.log_action(
+            server_id=self.guild.id,
+            target_id=target.id,
+            mod_id=self.actor.id,
+            action=f"ai_{action}",
+            reason=reason,
+        )
+        return f"Aksi {action} berhasil untuk {target.display_name}."
+
+    async def _log_failure(
+        self,
+        guild_id: int,
+        action: str,
+        target_id: int | None,
+        reason: str,
+        exc: Exception,
+    ) -> None:
+        """Aksi yang sudah dikonfirmasi tapi gagal tetap meninggalkan jejak di modlog."""
+        detail = exc.user_message if isinstance(exc, AkizaError) else type(exc).__name__
+        try:
+            await self.service.log_action(
+                server_id=guild_id,
+                target_id=target_id if target_id is not None else self.actor.id,
+                mod_id=self.actor.id,
+                action=f"ai_{action}_failed",
+                reason=f"{detail} | {reason}",
+            )
+        except Exception:
+            log.exception("moderation_failure_log_error", guild_id=guild_id, action=action)
 
 
 class ChatCog(commands.Cog):
@@ -288,6 +435,7 @@ class ChatCog(commands.Cog):
                     service=self.bot.services.moderation,
                     confirmations=self._confirmations,
                     channel=cast(discord.abc.Messageable, guild.get_channel(channel_id)),
+                    actor_is_owner=self.bot.is_owner_user(user.id),
                 ),
             )
         )
