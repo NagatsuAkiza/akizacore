@@ -169,3 +169,15 @@ Script menerapkan patch ke staging, memasang dependensi, menjalankan ruff + mypy
 3. Lanjut berurutan ke 6a-3 sampai 6a-6. Setelah 6a stabil, tanyakan pemilik sebelum memulai 6b.
 4. Setelah setiap sub-task laporkan: file yang berubah, hasil validasi, risiko tersisa, dan apakah perlu migrasi.
 5. Perbarui dokumen ini dan `docs/AkizaCore - Project Plan.md` di akhir setiap sub-task, bukan menunggu akhir sesi.
+
+## Tracking pemakaian AI (Fase 7a)
+
+Status: backend selesai. Dashboard (halaman AI Usage) dikerjakan di Fase 7b.
+
+- Tabel `ai_usage` kini punya kolom `kind` (ask/translate/rule), `status` (ok/error), `latency_ms`, `tools` (dipisah koma), `error_code`, plus index `(server_id, created_at)`. Migrasi `0008`.
+- Pencatatan di `AIOrchestrator`: panggilan sukses (`ask`, `translate`) lengkap dengan latensi dan tool; kegagalan dicatat sebagai `status=error` dengan `error_code` = nama exception (koin tetap di-refund); jawaban rule router dicatat sebagai `kind=rule` (tanpa token dan koin). Gagal mencatat tidak pernah menggagalkan jawaban.
+- **Kuota tidak berubah:** `AIUsageRepository.count_since` hanya menghitung `status=ok` dan `kind != rule`, sama seperti perilaku sebelumnya.
+- `services/ai_usage.py` (`AIUsageService`): `server_report(server_id, days)` (total, harian, top user, model, jenis, tool, error terakhir) dan `my_usage(user_id)` (kuota hari ini dan 7 hari). Query agregat ada di `database/repositories/ai_usage_report.py`.
+- Discord: `/usage` (pemakaian sendiri) dan `/usage scope:server` (ringkasan server, butuh Manage Server atau owner bot).
+- API: `GET /api/v1/servers/{id}/ai/usage?days=7` (1 sampai 90 hari, butuh izin kelola server).
+- Belum ada: retensi/pembersihan baris `ai_usage` lama, pencatatan penolakan (kuota/cooldown), dan alert saat kuota hampir habis.
