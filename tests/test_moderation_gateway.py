@@ -493,14 +493,21 @@ async def test_warn_requires_moderate_members() -> None:
 
 async def test_warn_allowed_with_moderate_members() -> None:
     env = build(actor_perms=discord.Permissions(moderate_members=True))
-    assert "diberi warning" in await env.gateway.warn(TARGET_ID, "spam")
+    reply = await env.gateway.warn(TARGET_ID, "spam")
+    assert "Konfirmasi diperlukan" in reply
+    env.service.warn.assert_not_awaited()
+    assert "diberi warning" in await confirm(env, reply)
+    env.service.warn.assert_awaited_once()
     with pytest.raises(AkizaError, match="izin Discord"):
         await env.gateway.clear_warnings(TARGET_ID)  # butuh manage_guild, sama seperti /clearwarns
 
 
 async def test_clear_warnings_allowed_with_manage_guild() -> None:
     env = build(actor_perms=MANAGE_GUILD_ONLY)
-    assert "dihapus" in await env.gateway.clear_warnings(TARGET_ID)
+    reply = await env.gateway.clear_warnings(TARGET_ID)
+    assert "Konfirmasi diperlukan" in reply
+    env.service.clear_warnings.assert_not_awaited()
+    assert "dihapus" in await confirm(env, reply)
 
 
 # ---------- Registry: tool hanya muncul bila admin, modul aktif, dan gateway tersedia ----------

@@ -171,16 +171,75 @@ class _DiscordModerationGateway(ModerationGateway):
             raise AkizaError("Role itu sama atau lebih tinggi dari role tertinggi kamu.")
         return role
 
-    async def warn(self, target_id: int, reason: str) -> str:
-        self._require_permission("moderate_members")
-        member = await self._member(target_id)
-        result = await self.service.warn(
-            server_id=self.guild.id,
-            user_id=member.id,
-            mod_id=self.actor.id,
-            reason=reason,
+    def _issue_token(
+        self, *, action: str, summary: str, execute: Callable[[], Awaitable[str]]
+    ) -> str:
+        token = self.confirmations.create(
+            guild_id=self.guild.id,
+            actor_id=self.actor.id,
+            action=action,
+            callback=execute,
+            summary=summary,
         )
-        return f"{member.display_name} diberi warning (total aktif: {result.total})."
+        return (
+            f"Konfirmasi diperlukan: {summary}. "
+            f"Jalankan `/confirm token:{token}` dalam {int(CONFIRMATION_TTL_S)} detik."
+        )
+
+    async def _request_member_write(
+        self,
+        *,
+        action: str,
+        permission: str,
+        target_id: int,
+        reason: str,
+        run: Callable[[discord.Member], Awaitable[str]],
+    ) -> str:
+        """Aksi tulis non-destruktif (warn, hapus warning) tetap butuh /confirm.
+
+        Tanpa ini, pesan berbahaya yang ikut terbaca AI (prompt injection) bisa langsung
+        mengubah data moderasi. Izin dan target divalidasi saat request dan saat eksekusi.
+        """
+        self._require_permission(permission)
+        member = await self._member(target_id)
+        summary = self._summary(
+            action=action,
+            member=member,
+            reason=reason,
+            minutes=None,
+            amount=None,
+            role=None,
+        )
+        guild_id = self.guild.id
+
+        async def execute() -> str:
+            try:
+                self._require_permission(permission)
+                fresh = await self._member(target_id)
+                return await run(fresh)
+            except Exception as exc:
+                await self._log_failure(guild_id, action, target_id, reason, exc)
+                raise
+
+        return self._issue_token(action=action, summary=summary, execute=execute)
+
+    async def warn(self, target_id: int, reason: str) -> str:
+        async def run(member: discord.Member) -> str:
+            result = await self.service.warn(
+                server_id=self.guild.id,
+                user_id=member.id,
+                mod_id=self.actor.id,
+                reason=reason,
+            )
+            return f"{member.display_name} diberi warning (total aktif: {result.total})."
+
+        return await self._request_member_write(
+            action="warn",
+            permission="moderate_members",
+            target_id=target_id,
+            reason=reason,
+            run=run,
+        )
 
     async def warnings(self, target_id: int) -> str:
         self._require_permission("moderate_members")
@@ -191,14 +250,21 @@ class _DiscordModerationGateway(ModerationGateway):
         return "\n".join(f"#{item.id} oleh <@{item.mod_id}>: {item.reason}" for item in items)
 
     async def clear_warnings(self, target_id: int) -> str:
-        self._require_permission("manage_guild")
-        member = await self._member(target_id)
-        count = await self.service.clear_warnings(
-            server_id=self.guild.id,
-            user_id=member.id,
-            mod_id=self.actor.id,
+        async def run(member: discord.Member) -> str:
+            count = await self.service.clear_warnings(
+                server_id=self.guild.id,
+                user_id=member.id,
+                mod_id=self.actor.id,
+            )
+            return f"{count} warning aktif milik {member.display_name} dihapus."
+
+        return await self._request_member_write(
+            action="clear_warnings",
+            permission="manage_guild",
+            target_id=target_id,
+            reason="hapus seluruh warning aktif",
+            run=run,
         )
-        return f"{count} warning aktif milik {member.display_name} dihapus."
 
     async def modlog(self, target_id: int | None) -> str:
         self._require_permission("moderate_members")

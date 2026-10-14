@@ -143,7 +143,10 @@ def build_default_registry(
             ),
             Tool(
                 "moderation_warn",
-                "Beri warning kepada member. Memerlukan izin moderasi.",
+                (
+                    "Ajukan warning untuk member. Tidak langsung dijalankan: "
+                    "user wajib mengonfirmasi token melalui /confirm."
+                ),
                 ModerationReasonArgs,
                 warn_member,
                 permission="admin",
@@ -162,7 +165,10 @@ def build_default_registry(
             ),
             Tool(
                 "moderation_clear_warnings",
-                "Hapus seluruh warning aktif milik member.",
+                (
+                    "Ajukan penghapusan seluruh warning aktif milik member. "
+                    "Tidak langsung dijalankan: user wajib mengonfirmasi token melalui /confirm."
+                ),
                 ModerationTargetArgs,
                 clear_member_warnings,
                 permission="admin",
