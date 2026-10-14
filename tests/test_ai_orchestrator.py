@@ -160,7 +160,9 @@ async def test_memory_retrieval_failure_refunds_and_does_not_persist(
         assert (
             await session.scalar(
                 select(func.count(AIUsage.id)).where(
-                    AIUsage.server_id == GUILD.id, AIUsage.user_id == USER.id
+                    AIUsage.server_id == GUILD.id,
+                    AIUsage.user_id == USER.id,
+                    AIUsage.status == "ok",
                 )
             )
             == 0

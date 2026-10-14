@@ -162,9 +162,11 @@ class AIOrchestrator:
             await self._check_quota(req.user.id)
 
         async def work(charged: int, balance: int | None) -> AskResult:
+            started = time.perf_counter()
             response = await self._llm.chat(
                 build_translate_messages(text, target), max_tokens=self._cfg.max_output_tokens
             )
+            latency_ms = round((time.perf_counter() - started) * 1000)
             if not response.content:
                 raise ProviderUnavailable("respons terjemahan kosong", retryable=False)
             async with session_scope(self._sf) as session:
@@ -175,6 +177,8 @@ class AIOrchestrator:
                     prompt_tokens=response.prompt_tokens,
                     completion_tokens=response.completion_tokens,
                     coins=charged,
+                    kind="translate",
+                    latency_ms=latency_ms,
                 )
             return AskResult(
                 text=response.content,
@@ -229,7 +233,16 @@ class AIOrchestrator:
         tool = self._tools.get(match.tool)
         if tool is None or self._tools.unavailable_reason(tool, ctx) is not None:
             return None  # modul dimatikan / tidak berhak: biarkan LLM yang menanggapi
+        started = time.perf_counter()
         text = await self._executor.run_named(match.tool, json.dumps(match.args), ctx)
+        await self._record_usage(
+            server_id=ctx.server_id,
+            user_id=ctx.user.id,
+            model=f"rule:{match.tool}",
+            kind="rule",
+            latency_ms=round((time.perf_counter() - started) * 1000),
+            tools=(match.tool,),
+        )
         return AskResult(
             text=text,
             model=f"rule:{match.tool}",
@@ -253,11 +266,22 @@ class AIOrchestrator:
                 server_id, user_id, self._cfg.cost_coins, kind=kind, meta=meta
             )
             charged = self._cfg.cost_coins
+        started = time.perf_counter()
         try:
             return await work(charged, balance)
-        except (Exception, asyncio.CancelledError):
+        except (Exception, asyncio.CancelledError) as exc:
             if charged:
                 await self._refund(server_id, user_id, charged)
+            if not isinstance(exc, asyncio.CancelledError):
+                await self._record_usage(
+                    server_id=server_id,
+                    user_id=user_id,
+                    model="-",
+                    kind=kind.removeprefix("ai_"),
+                    status="error",
+                    latency_ms=round((time.perf_counter() - started) * 1000),
+                    error_code=type(exc).__name__[:60],
+                )
             raise
 
     async def _chat(
@@ -305,7 +329,9 @@ class AIOrchestrator:
             is_bot_owner=self._is_owner(req.user.id),
             reply_context=req.reply_context,
         )
+        started = time.perf_counter()
         completion = await self._complete(messages, specs, ctx)
+        latency_ms = round((time.perf_counter() - started) * 1000)
 
         async with session_scope(self._sf) as session:
             await ConversationRepository(session).add_messages(
@@ -322,6 +348,9 @@ class AIOrchestrator:
                 prompt_tokens=completion.prompt_tokens,
                 completion_tokens=completion.completion_tokens,
                 coins=charged,
+                kind="ask",
+                latency_ms=latency_ms,
+                tools=completion.tools_used,
             )
         return AskResult(
             text=completion.text,
@@ -385,6 +414,37 @@ class AIOrchestrator:
             if profile is None:
                 return "id", False
             return profile.language, profile.ai_opt_out
+
+    async def _record_usage(
+        self,
+        *,
+        server_id: int,
+        user_id: int,
+        model: str,
+        kind: str,
+        status: str = "ok",
+        latency_ms: int | None = None,
+        tools: tuple[str, ...] = (),
+        error_code: str | None = None,
+    ) -> None:
+        """Catat pemakaian untuk tracking. Kegagalan mencatat tidak boleh mengganggu jawaban."""
+        try:
+            async with session_scope(self._sf) as session:
+                await AIUsageRepository(session).add(
+                    server_id=server_id,
+                    user_id=user_id,
+                    model=model,
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    coins=0,
+                    kind=kind,
+                    status=status,
+                    latency_ms=latency_ms,
+                    tools=tools,
+                    error_code=error_code,
+                )
+        except Exception:
+            log.exception("usage_record_failed", server_id=server_id, user_id=user_id)
 
     def _is_owner(self, user_id: int) -> bool:
         return self._cfg.owner_user_id == user_id

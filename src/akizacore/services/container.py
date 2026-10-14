@@ -10,6 +10,7 @@ from akizacore.ai.config import AIConfig
 from akizacore.ai.orchestrator import AIOrchestrator
 from akizacore.ai.providers.base import LLMProvider
 from akizacore.ai.tools.builtin import build_default_registry
+from akizacore.services.ai_usage import AIUsageService
 from akizacore.services.auth import AuthService
 from akizacore.services.economy import EconomyService
 from akizacore.services.economy_config import EconomyConfig
@@ -33,6 +34,7 @@ class Services:
     moderation: ModerationService
     memory: MemoryService
     auth: AuthService
+    usage: AIUsageService
     ai: AIOrchestrator | None  # None bila provider AI belum dikonfigurasi
 
     @classmethod
@@ -89,5 +91,11 @@ class Services:
             moderation=moderation,
             memory=memory,
             auth=AuthService(session_factory),
+            usage=AIUsageService(
+                session_factory,
+                daily_user_limit=ai_cfg.daily_user_limit,
+                daily_global_limit=ai_cfg.daily_global_limit,
+                utc_offset_hours=ai_cfg.utc_offset_hours,
+            ),
             ai=ai,
         )
