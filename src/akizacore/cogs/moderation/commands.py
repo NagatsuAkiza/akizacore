@@ -217,6 +217,7 @@ class ModerationCog(commands.Cog):
     async def untimeout(self, interaction: discord.Interaction, member: discord.Member) -> None:
         assert interaction.guild is not None
         _require(interaction, "moderate_members")
+        _check_target(interaction, member)
         try:
             await member.timeout(None, reason=f"Dicabut oleh {interaction.user}")
         except discord.Forbidden as exc:
