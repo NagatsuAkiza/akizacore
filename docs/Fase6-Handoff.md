@@ -181,3 +181,9 @@ Status: backend selesai. Dashboard (halaman AI Usage) dikerjakan di Fase 7b.
 - Discord: `/usage` (pemakaian sendiri) dan `/usage scope:server` (ringkasan server, butuh Manage Server atau owner bot).
 - API: `GET /api/v1/servers/{id}/ai/usage?days=7` (1 sampai 90 hari, butuh izin kelola server).
 - Belum ada: retensi/pembersihan baris `ai_usage` lama, pencatatan penolakan (kuota/cooldown), dan alert saat kuota hampir habis.
+## Dashboard AI Usage (Fase 7b)
+
+- Halaman `/servers/:id/ai` ("AI Usage" di sidebar): kartu ringkasan (pertanyaan, dijawab tanpa AI, gagal, token, koin, latensi), grafik batang harian (7/14/30 hari), pemakai teratas, jenis permintaan, model, tool, dan tabel error terakhir.
+- Data dari `GET /api/v1/servers/{id}/ai/usage?days=N` lewat hook `useAiUsage`; tipe di `dashboard/src/types/aiUsage.ts` mencerminkan `schemas/ai_usage.py`.
+- Grafik memakai CSS murni (`components/DailyBars.tsx`), tanpa library chart baru.
+- Belum diuji dengan login Discord asli dan data produksi; uji manual: jalankan `/ask` beberapa kali di server uji lalu buka halaman ini.
