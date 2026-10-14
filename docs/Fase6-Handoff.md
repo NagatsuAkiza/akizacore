@@ -187,3 +187,9 @@ Status: backend selesai. Dashboard (halaman AI Usage) dikerjakan di Fase 7b.
 - Data dari `GET /api/v1/servers/{id}/ai/usage?days=N` lewat hook `useAiUsage`; tipe di `dashboard/src/types/aiUsage.ts` mencerminkan `schemas/ai_usage.py`.
 - Grafik memakai CSS murni (`components/DailyBars.tsx`), tanpa library chart baru.
 - Belum diuji dengan login Discord asli dan data produksi; uji manual: jalankan `/ask` beberapa kali di server uji lalu buka halaman ini.
+## Penutupan utang keamanan (Fase 8)
+
+- `warn` dan `clear_warnings` lewat AI kini wajib `/confirm` (token terikat pemohon dan server, sekali pakai). Izin dan target divalidasi saat request dan diulang saat eksekusi; kegagalan tercatat sebagai `ai_warn_failed` / `ai_clear_warnings_failed`. Deskripsi tool memberi tahu model bahwa aksi tidak langsung jalan.
+- `/untimeout` manual kini memakai `_check_target` (hierarchy, diri sendiri, owner server, bot) seperti command moderasi lain.
+- `OWNER_USER_ID` tidak lagi punya default tertulis di `config/settings.py`; kosong berarti tidak ada owner bot. Pastikan `.env` (dan environment deployment) mengisinya.
+- Tersisa: token konfirmasi hanya di memori proses (hilang saat restart; cukup untuk satu proses), dan `Services` di API memakai `EconomyConfig` default.
