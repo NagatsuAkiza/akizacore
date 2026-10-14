@@ -8,6 +8,7 @@ import { OverviewPage } from './pages/OverviewPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { EconomyPage } from './pages/EconomyPage'
 import { ModerationPage } from './pages/ModerationPage'
+import { AiUsagePage } from './pages/AiUsagePage'
 
 export function App() {
   return (
@@ -23,6 +24,7 @@ export function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="economy" element={<EconomyPage />} />
           <Route path="moderation" element={<ModerationPage />} />
+          <Route path="ai" element={<AiUsagePage />} />
         </Route>
       </Route>
 

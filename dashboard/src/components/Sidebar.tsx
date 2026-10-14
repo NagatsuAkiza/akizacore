@@ -4,6 +4,7 @@ import {
   Settings,
   Coins,
   Shield,
+  Bot,
   ArrowLeft,
 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -13,6 +14,7 @@ const navItems = [
   { to: 'settings', label: 'Settings', icon: Settings },
   { to: 'economy', label: 'Economy', icon: Coins },
   { to: 'moderation', label: 'Moderation', icon: Shield },
+  { to: 'ai', label: 'AI Usage', icon: Bot },
 ]
 
 export function Sidebar() {
