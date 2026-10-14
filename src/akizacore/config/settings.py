@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     discord_token: SecretStr
-    owner_user_id: int = 370559264185516035
+    owner_user_id: int | None = None  # kosong = tidak ada owner bot (tanpa bypass)
     dev_guild_id: int | None = None
 
     database_url: str = DEFAULT_DATABASE_URL
