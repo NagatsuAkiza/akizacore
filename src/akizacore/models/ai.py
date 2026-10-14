@@ -53,7 +53,10 @@ class AIUsage(Base):
     """Log pemakaian AI. Dipisah dari messages agar /forget tidak mereset kuota."""
 
     __tablename__ = "ai_usage"
-    __table_args__ = (Index("ix_ai_usage_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_ai_usage_user_created", "user_id", "created_at"),
+        Index("ix_ai_usage_server_created", "server_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     server_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("servers.id", ondelete="CASCADE"))
@@ -62,6 +65,12 @@ class AIUsage(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     coins: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Tracking: jenis permintaan (ask/translate/rule), hasil (ok/error), latensi, tool, kode error
+    kind: Mapped[str] = mapped_column(String(16), default="ask", server_default="ask")
+    status: Mapped[str] = mapped_column(String(16), default="ok", server_default="ok")
+    latency_ms: Mapped[int | None] = mapped_column(Integer, default=None)
+    tools: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    error_code: Mapped[str | None] = mapped_column(String(60), default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )

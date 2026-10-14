@@ -19,6 +19,11 @@ class AIUsageRepository:
         prompt_tokens: int,
         completion_tokens: int,
         coins: int,
+        kind: str = "ask",
+        status: str = "ok",
+        latency_ms: int | None = None,
+        tools: tuple[str, ...] = (),
+        error_code: str | None = None,
     ) -> None:
         self.session.add(
             AIUsage(
@@ -28,6 +33,11 @@ class AIUsageRepository:
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 coins=coins,
+                kind=kind,
+                status=status,
+                latency_ms=latency_ms,
+                tools=",".join(tools)[:200],
+                error_code=error_code,
             )
         )
         await self.session.flush()
@@ -35,7 +45,16 @@ class AIUsageRepository:
     async def count_since(
         self, since: datetime, *, user_id: int | None = None, server_id: int | None = None
     ) -> int:
-        stmt = select(func.count()).select_from(AIUsage).where(AIUsage.created_at >= since)
+        # Kuota hanya menghitung panggilan LLM yang berhasil (bukan error dan bukan jawaban rule).
+        stmt = (
+            select(func.count())
+            .select_from(AIUsage)
+            .where(
+                AIUsage.created_at >= since,
+                AIUsage.status == "ok",
+                AIUsage.kind != "rule",
+            )
+        )
         if user_id is not None:
             stmt = stmt.where(AIUsage.user_id == user_id)
         if server_id is not None:
