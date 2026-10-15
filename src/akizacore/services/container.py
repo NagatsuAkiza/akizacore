@@ -96,6 +96,7 @@ class Services:
                 daily_user_limit=ai_cfg.daily_user_limit,
                 daily_global_limit=ai_cfg.daily_global_limit,
                 utc_offset_hours=ai_cfg.utc_offset_hours,
+                retention_days=ai_cfg.usage_retention_days,
             ),
             ai=ai,
         )

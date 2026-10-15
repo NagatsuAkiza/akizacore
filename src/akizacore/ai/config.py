@@ -21,6 +21,7 @@ class AIConfig:
     tools_enabled: bool = True
     max_tool_rounds: int = 3
     retention_days: int = 30
+    usage_retention_days: int = 90
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Self:
@@ -37,4 +38,5 @@ class AIConfig:
             tools_enabled=settings.ai_tools_enabled,
             max_tool_rounds=settings.ai_max_tool_rounds,
             retention_days=settings.ai_retention_days,
+            usage_retention_days=settings.ai_usage_retention_days,
         )

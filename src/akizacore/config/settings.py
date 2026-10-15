@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     ai_tools_enabled: bool = True  # False = matikan tool calling dan rule router (hanya chat biasa)
     ai_max_tool_rounds: int = 3
     ai_retention_days: int = 30
+    ai_usage_retention_days: int = 90  # baris tracking ai_usage dihapus setelah N hari (minimal 7)
     economy_starter_balance: int = 100
     economy_daily_amount: int = 50
     economy_daily_xp: int = 20

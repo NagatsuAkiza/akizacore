@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -8,6 +8,7 @@ from akizacore.database.session import session_scope
 from akizacore.schemas.ai_usage import DailyUsage, MyUsage, ServerUsageReport
 
 MAX_DAYS = 90
+MIN_RETENTION_DAYS = 7  # laporan 7 hari dan kuota harian tetap akurat
 
 
 class AIUsageService:
@@ -20,16 +21,25 @@ class AIUsageService:
         daily_user_limit: int,
         daily_global_limit: int,
         utc_offset_hours: int,
+        retention_days: int = 90,
     ) -> None:
         self._sf = session_factory
         self._user_limit = daily_user_limit
         self._global_limit = daily_global_limit
         self._offset = utc_offset_hours
+        self._retention_days = retention_days
 
     def _day_start(self) -> datetime:
         # Sama dengan batas hari pada kuota di AIOrchestrator.
         tz = timezone(timedelta(hours=self._offset))
         return datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async def purge_expired(self, now: datetime | None = None) -> int:
+        """Hapus baris tracking yang melewati masa retensi (minimal 7 hari)."""
+        days = max(self._retention_days, MIN_RETENTION_DAYS)
+        cutoff = (now or datetime.now(UTC)) - timedelta(days=days)
+        async with session_scope(self._sf) as session:
+            return await AIUsageRepository(session).purge_older_than(cutoff)
 
     async def server_report(
         self, server_id: int, *, days: int = 7, top_limit: int = 5, error_limit: int = 10

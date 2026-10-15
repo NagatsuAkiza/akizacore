@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from akizacore.models import AIUsage
@@ -60,3 +60,8 @@ class AIUsageRepository:
         if server_id is not None:
             stmt = stmt.where(AIUsage.server_id == server_id)
         return (await self.session.execute(stmt)).scalar_one()
+
+    async def purge_older_than(self, cutoff: datetime) -> int:
+        """Hapus baris tracking yang lebih lama dari `cutoff`. Return jumlah baris terhapus."""
+        result = await self.session.execute(delete(AIUsage).where(AIUsage.created_at < cutoff))
+        return max(int(getattr(result, "rowcount", 0) or 0), 0)

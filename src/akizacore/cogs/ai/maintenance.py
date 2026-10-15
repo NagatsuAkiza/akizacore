@@ -9,7 +9,7 @@ log = structlog.get_logger()
 
 
 class AIMaintenance(commands.Cog):
-    """Pembersihan berkala riwayat percakapan yang melewati masa retensi."""
+    """Pembersihan berkala: riwayat percakapan dan baris tracking ai_usage yang kedaluwarsa."""
 
     def __init__(self, bot: AkizaBot) -> None:
         self.bot = bot
@@ -21,14 +21,19 @@ class AIMaintenance(commands.Cog):
     @tasks.loop(hours=6)
     async def purge_loop(self) -> None:
         ai = self.bot.services.ai
-        if ai is None:
-            return
+        if ai is not None:
+            try:
+                messages, conversations = await ai.purge_expired()
+            except Exception:
+                log.exception("purge_failed")
+            else:
+                log.info("history_purged", messages=messages, conversations=conversations)
         try:
-            messages, conversations = await ai.purge_expired()
+            usage_rows = await self.bot.services.usage.purge_expired()
         except Exception:
-            log.exception("purge_failed")
-            return
-        log.info("history_purged", messages=messages, conversations=conversations)
+            log.exception("usage_purge_failed")
+        else:
+            log.info("usage_purged", rows=usage_rows)
 
     @purge_loop.before_loop
     async def _before_purge(self) -> None:
