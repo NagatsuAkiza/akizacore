@@ -142,7 +142,7 @@ class AIOrchestrator:
 
         if not is_owner:
             self._check_cooldown(req.user.id)
-            await self._check_quota(req.user.id)
+            await self._check_quota(req.server_id, req.user.id, "ask")
 
         async def work(charged: int, balance: int | None) -> AskResult:
             return await self._chat(req, prompt, admission, ctx, charged, balance)
@@ -159,7 +159,7 @@ class AIOrchestrator:
         await self._admit(req.server_id, req.user.id)
         if not self._is_owner(req.user.id):
             self._check_cooldown(req.user.id)
-            await self._check_quota(req.user.id)
+            await self._check_quota(req.server_id, req.user.id, "translate")
 
         async def work(charged: int, balance: int | None) -> AskResult:
             started = time.perf_counter()
@@ -461,13 +461,30 @@ class AIOrchestrator:
         tz = timezone(timedelta(hours=self._cfg.utc_offset_hours))
         return datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    async def _check_quota(self, user_id: int) -> None:
+    async def _check_quota(self, server_id: int, user_id: int, kind: str) -> None:
         since = self._day_start()
         async with session_scope(self._sf) as session:
             repo = AIUsageRepository(session)
-            if await repo.count_since(since) >= self._cfg.daily_global_limit:
-                raise QuotaExceeded("Kuota AI harian bot sudah habis. Coba lagi besok.")
-            if await repo.count_since(since, user_id=user_id) >= self._cfg.daily_user_limit:
-                raise QuotaExceeded(
-                    f"Batas {self._cfg.daily_user_limit} pertanyaan AI per hari sudah tercapai."
-                )
+            global_used = await repo.count_since(since)
+            user_used = await repo.count_since(since, user_id=user_id)
+        if global_used >= self._cfg.daily_global_limit:
+            await self._record_rejection(server_id, user_id, kind, "global_quota")
+            raise QuotaExceeded("Kuota AI harian bot sudah habis. Coba lagi besok.")
+        if user_used >= self._cfg.daily_user_limit:
+            await self._record_rejection(server_id, user_id, kind, "user_quota")
+            raise QuotaExceeded(
+                f"Batas {self._cfg.daily_user_limit} pertanyaan AI per hari sudah tercapai."
+            )
+
+    async def _record_rejection(
+        self, server_id: int, user_id: int, kind: str, error_code: str
+    ) -> None:
+        """Catat permintaan yang ditolak karena kuota (tidak menghitung kuota, tidak ada koin)."""
+        await self._record_usage(
+            server_id=server_id,
+            user_id=user_id,
+            model="-",
+            kind=kind,
+            status="rejected",
+            error_code=error_code,
+        )

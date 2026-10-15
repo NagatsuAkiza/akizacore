@@ -46,6 +46,7 @@ class AIUsageReportRepository:
             func.coalesce(func.sum(AIUsage.coins), 0),
             func.avg(AIUsage.latency_ms).filter(_LLM_OK),
             func.percentile_cont(0.95).within_group(AIUsage.latency_ms).filter(_LLM_OK),
+            func.count().filter(AIUsage.status == "rejected"),
         ).where(*_filters(since, server_id, user_id))
         row = (await self.session.execute(stmt)).one()
         return UsageTotals(
@@ -57,6 +58,7 @@ class AIUsageReportRepository:
             coins=int(row[5]),
             avg_latency_ms=round(row[6]) if row[6] is not None else None,
             p95_latency_ms=round(row[7]) if row[7] is not None else None,
+            rejected=int(row[8]),
         )
 
     async def daily(

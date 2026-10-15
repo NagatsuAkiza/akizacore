@@ -63,7 +63,8 @@ class UsageCog(commands.Cog):
             value=(
                 f"{_n(week.requests)} pertanyaan, "
                 f"{_n(week.prompt_tokens + week.completion_tokens)} token, "
-                f"{_n(week.errors)} gagal, {_n(week.rule_hits)} dijawab tanpa AI"
+                f"{_n(week.errors)} gagal, {_n(week.rejected)} ditolak (kuota), "
+                f"{_n(week.rule_hits)} dijawab tanpa AI"
             ),
             inline=False,
         )
@@ -85,6 +86,7 @@ class UsageCog(commands.Cog):
         embed.add_field(name="Pertanyaan", value=_n(totals.requests))
         embed.add_field(name="Dijawab tanpa AI", value=_n(totals.rule_hits))
         embed.add_field(name="Gagal", value=_n(totals.errors))
+        embed.add_field(name="Ditolak (kuota)", value=_n(totals.rejected))
         embed.add_field(
             name="Token",
             value=f"{_n(totals.prompt_tokens)} prompt / {_n(totals.completion_tokens)} jawaban",

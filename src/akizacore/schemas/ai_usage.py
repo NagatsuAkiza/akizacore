@@ -7,6 +7,7 @@ class UsageTotals(BaseModel):
     requests: int = 0  # panggilan LLM yang berhasil (/ask, mention, /translate)
     rule_hits: int = 0  # dijawab rule router tanpa LLM
     errors: int = 0  # panggilan gagal (koin di-refund)
+    rejected: int = 0  # ditolak karena kuota harian (user atau global)
     prompt_tokens: int = 0
     completion_tokens: int = 0
     coins: int = 0
