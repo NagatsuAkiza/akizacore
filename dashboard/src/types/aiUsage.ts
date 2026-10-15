@@ -4,6 +4,7 @@ export interface UsageTotals {
   requests: number
   rule_hits: number
   errors: number
+  rejected: number
   prompt_tokens: number
   completion_tokens: number
   coins: number

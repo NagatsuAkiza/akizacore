@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams } from 'react-router'
-import { Bot, Coins, Loader2, Sparkles, Timer, TriangleAlert, Zap } from 'lucide-react'
+import { Ban, Bot, Coins, Loader2, Sparkles, Timer, TriangleAlert, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAiUsage } from '../hooks/useAiUsage'
 import { PageHeader } from '../components/PageHeader'
@@ -86,6 +86,7 @@ export function AiUsagePage() {
             <StatCard label="Pertanyaan" value={n(totals.requests)} icon={Bot} />
             <StatCard label="Dijawab tanpa AI" value={n(totals.rule_hits)} icon={Sparkles} />
             <StatCard label="Gagal" value={n(totals.errors)} icon={TriangleAlert} />
+            <StatCard label="Ditolak (kuota)" value={n(totals.rejected)} icon={Ban} />
             <StatCard
               label="Token (prompt + jawaban)"
               value={n(totals.prompt_tokens + totals.completion_tokens)}
