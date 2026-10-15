@@ -193,3 +193,8 @@ Status: backend selesai. Dashboard (halaman AI Usage) dikerjakan di Fase 7b.
 - `/untimeout` manual kini memakai `_check_target` (hierarchy, diri sendiri, owner server, bot) seperti command moderasi lain.
 - `OWNER_USER_ID` tidak lagi punya default tertulis di `config/settings.py`; kosong berarti tidak ada owner bot. Pastikan `.env` (dan environment deployment) mengisinya.
 - Tersisa: token konfirmasi hanya di memori proses (hilang saat restart; cukup untuk satu proses), dan `Services` di API memakai `EconomyConfig` default.
+## Tracking AI lanjutan (Fase 9)
+
+- **Retensi:** baris `ai_usage` dihapus setelah `AI_USAGE_RETENTION_DAYS` hari (default 90, minimal 7) oleh `AIMaintenance.purge_loop` (tiap 6 jam, bersama riwayat percakapan). Log: `usage_purged`.
+- **Penolakan kuota dicatat** sebagai `status=rejected` dengan `error_code` `user_quota` atau `global_quota` (cooldown sengaja tidak dicatat). Tidak menghitung kuota dan tidak memakai koin. Muncul sebagai `rejected` di laporan, `/usage`, dan kartu "Ditolak (kuota)" di dashboard.
+- **Peringatan kuota:** `AIMaintenance.quota_loop` (tiap 10 menit) mengirim DM ke `OWNER_USER_ID` saat kuota AI global mencapai 80% dan 100%, sekali per ambang per hari (`services/quota_alert.py`). Status pengiriman hanya di memori; setelah restart bisa terkirim ulang. Owner perlu mengizinkan DM dari server bot.
