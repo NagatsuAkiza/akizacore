@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -93,3 +93,10 @@ class AIUsageService:
             coins_today=today_totals.coins,
             last_7_days=week,
         )
+
+    async def global_quota_status(self) -> tuple[int, int, date]:
+        """(terpakai hari ini, batas global, tanggal lokal) untuk peringatan kuota."""
+        today = self._day_start()
+        async with session_scope(self._sf) as session:
+            used = await AIUsageRepository(session).count_since(today)
+        return used, self._global_limit, today.date()
